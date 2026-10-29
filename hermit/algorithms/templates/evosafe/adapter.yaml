@@ -1,0 +1,15 @@
+template:
+  id: evosafe
+  version: "1.0"
+  contract: "1"
+exports: {}
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 16000}
+    - path: defense.py
+      format: {text: true, max_bytes: 32000}
+    - path: BUNDLE.md
+      format: {text: true, max_bytes: 16000}
+  fixed: [EVOLVER.md, check.py]
+check: check.py:check

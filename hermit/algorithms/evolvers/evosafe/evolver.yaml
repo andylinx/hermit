@@ -1,0 +1,9 @@
+description: Propose a defense bundle, evaluate parent and candidate on fixed cases, and accept only an improvement.
+class: evolver.py:EvoSafeEvolver
+needs: []
+params:
+  eval_task_ids: []
+  min_clean_utility: 0.0
+  max_clean_drop: 0.0
+  min_improvement: 0.0
+  max_tokens: 6000
