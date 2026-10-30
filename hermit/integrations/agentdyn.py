@@ -21,6 +21,12 @@ from hermit.task import JudgeResult, RunOutput
 AGENTDYN_REVISION = "5353cf7615b135cace8d07c8f12dac53a16b6db3"
 
 
+def encode(value):
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    raise TypeError(f"not JSON serializable: {type(value).__name__}")
+
+
 def invoke(fn, *args):
     value = fn(*args)
     return asyncio.run(value) if inspect.isawaitable(value) else value
@@ -114,7 +120,19 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     user_task = suite.get_user_task_by_id(task["user_task_id"])
     injection_task = suite.get_injection_task_by_id(task["injection_task_id"]) if task.get("injection_task_id") else None
     defense = load_defense(adapter)
-    config = PipelineConfig(llm=params["model"], model_id=None, defense=None,
+    logs = (base / params.get("logs", "runs/agentdyn-episodes")).resolve()
+    if adapter is not None and logs.is_relative_to(adapter.resolve()):
+        raise ValueError("episode logs must be outside the adapter")
+    logs.mkdir(parents=True, exist_ok=True)
+    log = Path(tempfile.mkdtemp(prefix="episode-", dir=logs))
+    victim = None
+    if params.get("api_script") or params.get("base_url"):
+        from hermit.integrations.openai_victim import make_victim
+        def record_call(event):
+            with (log / "llm-calls.jsonl").open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+        victim = make_victim(params, base, on_call=record_call)
+    config = PipelineConfig(llm=victim if victim is not None else params["model"], model_id=None, defense=None,
                             system_message_name=None, system_message=None, suite_name=task["suite"])
     if adapter is not None:
         prompt = config.system_message + "\n\n" + (adapter / "ADAPTER.md").read_text()
@@ -146,12 +164,31 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     def capture(*args, **kwargs):
         result = original_query(*args, **kwargs)
         captured[:] = result[3]
+        # Native suites retry a missing terminal answer up to three times on the
+        # same mutated environment. Treat exhaustion as an error immediately;
+        # otherwise max_iters is not an effective episode bound.
+        if (not captured or captured[-1].get("role") != "assistant" or captured[-1].get("tool_calls")
+                or not captured[-1].get("content")):
+            raise RuntimeError("episode did not produce a terminal assistant response")
         return result
 
     pipeline.query = capture
     started = time.monotonic()
-    utility, injection_success = suite.run_task_with_pipeline(
-        pipeline, user_task, injection_task, task.get("injections", {}))
+    try:
+        utility, injection_success = suite.run_task_with_pipeline(
+            pipeline, user_task, injection_task, task.get("injections", {}))
+    except Exception as exc:
+        (log / "failure.json").write_text(json.dumps({"case_id": task.get("id"),
+            "user_task_id": task["user_task_id"], "error_type": type(exc).__name__}))
+        (log / "trajectory.json").write_text(json.dumps(captured, default=encode))
+        (log / "audit.json").write_text(json.dumps(audit))
+        raise
+    finally:
+        if victim is not None:
+            victim.close()
+            # Keep usage even when a truncated/failed episode cannot produce a
+            # RunOutput. The Trainer's failed-episode accounting is still unknown.
+            (log / "usage.json").write_text(json.dumps(victim.usage, indent=2))
     # Do not count an exhausted loop or missing terminal answer as a secure result.
     if (not captured or captured[-1].get("role") != "assistant" or captured[-1].get("tool_calls")
             or not captured[-1].get("content")):
@@ -161,15 +198,6 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     result = {"utility": utility,
               "attack_success": injection_success if injection_task is not None else None,
               "kind": "injected" if injection_task is not None else "clean"}
-    logs = (base / params.get("logs", "runs/agentdyn-episodes")).resolve()
-    if adapter is not None and logs.is_relative_to(adapter.resolve()):
-        raise ValueError("episode logs must be outside the adapter")
-    logs.mkdir(parents=True, exist_ok=True)
-    log = Path(tempfile.mkdtemp(prefix="episode-", dir=logs))
-    def encode(value):
-        if hasattr(value, "model_dump"):
-            return value.model_dump(mode="json")
-        raise TypeError(f"not JSON serializable: {type(value).__name__}")
     messages = json.loads(json.dumps(captured, default=encode))
     (log / "trajectory.json").write_text(json.dumps(messages, indent=2))
     (log / "audit.json").write_text(json.dumps(audit, indent=2))
@@ -178,11 +206,21 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
         for name in ("ADAPTER.md", "defense.py"):
             digest.update(name.encode() + (adapter / name).read_bytes())
     provenance = {"reference_revision": AGENTDYN_REVISION, "model": params["model"],
+                  "generation": {k: params[k] for k in ("max_tokens", "temperature", "top_p", "extra_body", "max_iters") if k in params},
                   "adapter_sha256": digest.hexdigest() if adapter else None,
                   "case_sha256": hashlib.sha256(json.dumps(task, sort_keys=True).encode()).hexdigest()}
+    tokens, cost = None, None
+    if victim is not None:
+        provenance["usage"] = victim.usage
+        if not victim.usage["unknown_usage_calls"]:
+            tokens = victim.usage["input_tokens"] + victim.usage["output_tokens"]
+            if params.get("price") is not None:
+                price = params["price"]
+                cost = (victim.usage["input_tokens"] * price["input"] +
+                        victim.usage["output_tokens"] * price["output"]) / 1e6
     (log / "result.json").write_text(json.dumps({**result, **provenance}, indent=2))
     return RunOutput(output=result, messages=messages, log=log, wall_s=time.monotonic() - started,
-                     extra=provenance)  # unknown cost/tokens stay None
+                     tokens=tokens, cost_usd=cost, extra=provenance)
 
 
 def score(task: dict, output: RunOutput) -> JudgeResult:

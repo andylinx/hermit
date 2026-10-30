@@ -2,7 +2,8 @@
 
 This first integration evolves a defensive prompt and tool hooks using Hermit's
 Trainer. It replays **existing frozen cases** in AgentDyn's native environment;
-it does not create attacks. No model-backed benchmark score is claimed yet.
+it does not create attacks. Model-backed smoke results are recorded separately
+from benchmark claims in [NVIDIA_SMOKE_RESULTS.md](NVIDIA_SMOKE_RESULTS.md).
 See [IMPLEMENTATION.md](IMPLEMENTATION.md) for implemented behavior, verification,
 limitations and remaining work.
 
@@ -67,8 +68,9 @@ The seed split is an integration protocol, not an official AgentDyn training spl
 `run.yaml` fixes the victim through `agent.params.model` (an AgentDyn model name).
 Configure the proposer independently via Hermit's `llm`, for example an existing
 configured `<backend>/<model>` reference. Export the credentials needed by both.
-For a custom endpoint/model, the native AgentDyn provider registry must support it;
-the example does not translate arbitrary Hermit model bindings into AgentDyn.
+For a custom OpenAI-compatible endpoint/model, set `agent.params.base_url` and
+`api_key_env`, or `api_script` as described below. That path bypasses the native
+model-name registry while retaining AgentDyn's message/tool serialization.
 
 ```bash
 hermit check --config examples/agentdyn/run.yaml --no-probe llm=YOUR_BACKEND/YOUR_PROPOSER
@@ -101,14 +103,61 @@ python examples/agentdyn/report.py \
 
 For repeated evaluation, set `eval.repeats=N` and pass `--repeats N` to the report.
 Missing/duplicate episodes and errors invalidate the selection objective; metrics
-over completed episodes are explicitly diagnostic. Victim cost/tokens currently
-remain unknown; use a wall-time limit rather than assuming a dollar budget covers
-all victim spend. Proposer calls through Hermit's `llm` tool are metered.
+over completed episodes are explicitly diagnostic. The compatible victim records
+provider token usage; dollars remain unknown unless explicit per-million-token
+`price: {input: ..., output: ...}` is configured. Native AgentDyn model bindings
+still lack this meter. Failed episodes retain a usage sidecar when available, but
+the Trainer does not add that usage to its failed-episode budget. Keep a wall-time
+limit as well. Proposer calls through Hermit's `llm` tool are metered; CLI proposals
+report Codex's usage via StepResult.
+
+## NVIDIA victim and Codex evolver
+
+`nvidia-smoke.yaml` uses NVIDIA Nemotron Super 49B v1.5 and the local authenticated
+Codex CLI. It explicitly disables Hermit's sandbox for the user's authorized local
+full-access experiment. The general `run.yaml` still requires isolation.
+
+The `api_script: ~/project/api3.py` setting reads only the `base_url` and `api_key`
+arguments of `OpenAI(...)`, using AST parsing. It does not execute the file, send its
+example prompt, or use its original model. Literal values and simple environment
+lookups are supported. The victim model is fixed separately in YAML. No credentials
+are copied into run configs, prompts or checked-in files.
+
+```bash
+python examples/agentdyn/prepare_smoke.py /path/to/prepared/tasks.jsonl \
+  examples/agentdyn/data/nvidia-smoke-v2
+hermit check --config examples/agentdyn/nvidia-smoke.yaml --no-probe
+hermit train --config examples/agentdyn/nvidia-smoke.yaml
+hermit eval --config examples/agentdyn/nvidia-smoke.yaml --adapter none
+hermit eval --config examples/agentdyn/nvidia-smoke.yaml --adapter root
+hermit eval --config examples/agentdyn/nvidia-smoke.yaml --adapter final
+```
+
+The revised smoke selector fixes three disjoint user-task groups before execution (0 for
+train, 3 for validation, 2 for test), each with a clean case and one existing frozen
+injection case. This is only six episodes, suitable for debugging, not evidence of
+generalization. Use a fresh `trainer.run_name` for a new experiment.
+The original tasks 4 and 19 were excluded after source inspection found discrepancies
+between their user requests and utility judges; see the results document. The judge
+was not modified and the original exploratory results remain on disk.
+
+`evolver.params.proposer: codex` runs `codex exec --yolo` with a JSON output schema
+in a scratch directory. It uses the existing local Codex configuration/authentication
+unless `codex_model` is specified. Codex returns a defensive proposal; the fixed
+evolver still checks it and evaluates it before acceptance. The prompt forbids git
+operations and requests no tools or file edits. Nothing in this integration pushes
+or publishes a branch. On a sandboxed host, Codex auth/config access must be granted
+separately; this smoke route was tested with full access.
+
+`max_tokens`, `temperature`, `top_p`, `extra_body`, `request_timeout_s` and `max_retries`
+configure compatible victim requests. Truncation and malformed tool-call arguments
+fail the episode. Exhausting `max_iters` fails immediately rather than letting the
+native suite silently restart against the same mutated environment.
 
 ## Verify without API calls
 
 ```bash
-python -m pytest tests/test_agentdyn.py -q
+python -m pytest tests/test_agentdyn.py tests/test_agentdyn_live_backends.py -q
 ```
 
 Tests cover hook effects, score direction, data grouping and candidate selection.

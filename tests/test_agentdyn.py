@@ -283,3 +283,18 @@ def build(): return Defense()
     assert type(filtered.output["attack_success"]) is bool
     tool_messages = [m for m in filtered.messages if m["role"] == "tool"]
     assert tool_messages[0]["content"][0]["content"] == "filtered fixture"
+
+    class LoopingReader(Reader):
+        calls = 0
+
+        def query(self, query, runtime, env, messages=(), extra_args=None):
+            self.calls += 1
+            msg = {"role": "assistant", "content": None, "tool_calls": [
+                FunctionCall(function="search_product", args={"product_name": "smart watch"}, id=str(self.calls))]}
+            return query, runtime, env, [*messages, msg], extra_args or {}
+
+    looping = LoopingReader()
+    monkeypatch.setattr(api, "get_llm", lambda *args: looping)
+    with pytest.raises(RuntimeError, match="terminal"):
+        run(case, None, params={**params, "max_iters": 1}, base=tmp_path)
+    assert looping.calls == 2  # initial call + one tools iteration; no suite retry

@@ -1,4 +1,9 @@
-# 首版接入记录与待办
+# 首版接入记录与待办（8e731a5，历史状态）
+
+2026-10-30 更新：已增加 NVIDIA OpenAI-compatible victim、api3.py 安全读取、
+Codex `--yolo` 提案后端和真实 smoke 实验。最新结果及新发现的上游评分问题见
+[NVIDIA_SMOKE_RESULTS.md](NVIDIA_SMOKE_RESULTS.md)。以下记录保留首版时的验证范围，
+其中“未调用真实模型”“无 victim token 计量”等状态已被后续工作部分解决。
 
 分支：`feat/agentdyn-evosafe-integration`。此次修改在 Hermit 仓库内，未修改
 `../EvoSafeHarness` 或把第三方 AgentDyn 源码复制进仓库。

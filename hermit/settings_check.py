@@ -39,7 +39,15 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         start = config.path(d["start_from"]) if d.get("start_from") else template_dir
         problems = []
         if start is not None and (start / "adapter.yaml").is_file():
-            result = check_spec(start, template_dir)
+            # Match Trainer's explicit sandbox setting, restoring the process
+            # default afterwards so checking one config cannot affect another.
+            from hermit import spec as spec_module
+            previous = spec_module.SANDBOX_ENFORCE
+            spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
+            try:
+                result = check_spec(start, template_dir)
+            finally:
+                spec_module.SANDBOX_ENFORCE = previous
             problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
         report("template", problems, f"{read_manifest(template_dir)['template']}")
     except Exception as exc:

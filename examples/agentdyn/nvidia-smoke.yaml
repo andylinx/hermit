@@ -1,0 +1,43 @@
+# Local full-access smoke run explicitly requested by the user. No credentials here.
+data:
+  tasks: data/nvidia-smoke-v2/tasks.jsonl
+  train: data/nvidia-smoke-v2/train.txt
+  val: data/nvidia-smoke-v2/val.txt
+  test: data/nvidia-smoke-v2/test.txt
+  step_size: 2
+  shuffle: false
+task_info: task-info
+template: evosafe@1.0
+agent:
+  name: hermit.integrations.agentdyn:run
+  concurrency: 1
+  timeout_min: 10
+  params:
+    model: nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5
+    api_script: ~/project/api3.py
+    benchmark_version: v1.2.2
+    max_iters: 20
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 1
+    logs: runs/nvidia-episodes
+judge:
+  path: judge.py
+evolver:
+  name: evosafe
+  params:
+    proposer: codex
+    codex_timeout_s: 600
+    max_clean_drop: 0.0
+    min_improvement: 0.0
+sandbox:
+  enabled: false
+trainer:
+  run_name: nemotron-super-codex-audited
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 20
+  budget:
+    hours: 1
+    tokens: 2000000

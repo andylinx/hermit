@@ -2,6 +2,10 @@ description: Propose a defense bundle, evaluate parent and candidate on fixed ca
 class: evolver.py:EvoSafeEvolver
 needs: []
 params:
+  proposer: llm
+  codex_bin: codex
+  codex_model: null
+  codex_timeout_s: 600
   eval_task_ids: []
   min_clean_utility: 0.0
   max_clean_drop: 0.0
