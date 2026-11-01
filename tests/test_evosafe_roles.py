@@ -8,6 +8,7 @@ import pytest
 from hermit.evolver.base import Access, Progress, StepContext, Workspace
 from hermit.algorithms.evolvers.evosafe import roles
 from hermit.algorithms.evolvers.evosafe.evidence import training_evidence, result_evidence
+from hermit.algorithms.evolvers.evosafe.evidence import failure_packet, audit_evidence
 
 TEMPLATE = Path(__file__).resolve().parents[1] / 'hermit/algorithms/templates/evosafe'
 
@@ -119,6 +120,59 @@ def test_analyzer_feedback_reaches_next_designer_and_repeats(tmp_path):
     assert len(designers) == 2 and designers[1]['lessons'][0]['next_hypothesis'] == 'one scoped change'
     assert len(json.loads((ctx.workspace.output / 'parent-results.json').read_text())) == 8
     assert not result.extra['accepted']
+    previous = designers[1]['previous_candidate_evidence']
+    assert previous['candidate_files']['ADAPTER.md'] == 'evidence grounded tested defense'
+    assert previous['priority_cases']['case_count'] == 8
+    assert previous['measured_comparison']['candidate']['episodes'] == 8
+
+
+def test_failure_packet_keeps_all_verdicts_and_prioritizes_paired_regression():
+    clean = {'id': 'clean'}
+    injected = {'id': 'attack', 'injection_task_id': 'fixed'}
+    parent = [outcome(clean), outcome(injected, attack=True)]
+    candidate = [outcome(clean, clean=False), outcome(injected, attack=True)]
+    packet = failure_packet(parent, candidate, max_details=2)
+    assert packet['case_count'] == 2 and packet['detail_count'] == 2
+    assert 'clean_utility_regression' in packet['case_index'][0]['tags']
+    assert 'attack_succeeded' in packet['case_index'][1]['tags']
+    assert packet['dossiers'][0]['parent']['output']['utility'] is True
+    assert packet['dossiers'][0]['candidate']['output']['utility'] is False
+    failed = failure_packet(parent, [{'id': 'attack', 'status': 'error', 'output': None}])
+    assert failed['case_index'][0]['tags'] == ['runtime_error']
+    assert failed['dossiers'][0]['candidate']['status'] == 'error'
+
+
+def test_hook_intervention_in_middle_is_not_discarded(tmp_path):
+    rows = [{'tool': 'read', 'blocked': False, 'requested_arguments': {}, 'arguments': {}}
+            for _ in range(40)]
+    rows[20] = {**rows[20], 'blocked': True}
+    (tmp_path / 'audit.json').write_text(json.dumps(rows))
+    evidence = audit_evidence(tmp_path)
+    assert evidence['hooks']['blocked'] == 1
+    assert any(r['blocked'] for r in evidence['hooks']['events'])
+
+
+def test_parent_evidence_matches_fresh_measured_parent(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'review_reject')
+    original = ctx.tools['run_agent']
+    def fresh(**kwargs):
+        answer = original(**kwargs)
+        for row in answer['results']:
+            row['messages'] = [{'role': 'assistant', 'content': 'FRESH_MEASURED_PARENT'}]
+        return answer
+    ctx.tools['run_agent'] = fresh
+    roles.run(ctx, ids)
+    evidence = inputs[0][1]['training_evidence']
+    assert all(r['events'][0]['content'] == 'FRESH_MEASURED_PARENT' for r in evidence)
+
+
+def test_seed_failure_evidence_cannot_include_nontraining_cases(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'review_reject')
+    (ctx.workspace.state / 'previous_candidate_evidence.json').write_text(json.dumps({
+        'priority_cases': {'case_index': [{'id': 'test-secret'}]}}))
+    result = roles.run(ctx, ids)
+    assert result.status == 'failed' and not inputs
+    assert 'current TRAIN selection' in result.extra['error']
 
 
 def test_probe_cannot_overlap_selection_or_name_test(tmp_path):
@@ -141,6 +195,7 @@ def test_failed_candidate_never_counted_as_secure(tmp_path):
     assert 'failed episodes' in result.extra['trials'][0]['error']
     assert len(inputs) == 3
     assert inputs[-1][1]['candidate_outcomes'][0]['status'] == 'error'
+    assert (ctx.workspace.output / 'trial-001-candidate/defense.py').is_file()
 
 
 @pytest.mark.parametrize('fail_at', [1, 2])
@@ -206,7 +261,8 @@ def test_promoted_parent_trajectories_reach_next_designer(tmp_path):
     def with_trajectory(task_ids, adapter):
         result = original(task_ids, adapter)
         for row in result['results']:
-            row['messages'] = [{'role': 'assistant', 'content': 'NEWLY_MEASURED_PARENT_TRACE'}]
+            marker = 'NEWLY_MEASURED_PARENT_TRACE' if Path(adapter) != ctx.workspace.adapter else 'INITIAL_MEASURED_PARENT_TRACE'
+            row['messages'] = [{'role': 'assistant', 'content': marker}]
         return result
 
     ctx.tools['run_agent'] = with_trajectory

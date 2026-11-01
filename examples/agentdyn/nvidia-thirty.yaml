@@ -1,0 +1,119 @@
+# Full 30-case training score; no small-prefix utility rejection. Frozen split ownership.
+data:
+  tasks: data/thirty-v1/tasks.jsonl
+  train: data/thirty-v1/train.txt
+  val: data/thirty-v1/val.txt
+  test: data/thirty-v1/test.txt
+  step_size: 30
+  shuffle: false
+task_info: task-info
+template: evosafe@1.0
+agent:
+  name: hermit.integrations.agentdyn:run
+  concurrency: 6
+  timeout_min: 15
+  params:
+    model: nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5
+    api_script: ~/project/api3.py
+    benchmark_version: v1.2.2
+    max_iters: 25
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 1
+    logs: runs/thirty-episodes
+    auditor:
+      enabled: true
+      max_calls: 4
+      max_chars: 8000
+      max_tokens: 2048
+      timeout_s: 45
+judge:
+  path: judge.py
+evolver:
+  name: evosafe
+  params:
+    proposer: codex
+    codex_timeout_s: 600
+    max_clean_drop: 0.0
+    min_improvement: 0.0
+    search_mode: roles
+    max_proposals: 3
+    cascade_sizes:
+    - 30
+    evaluation_repeats: 1
+    eval_task_ids:
+    - shopping-user_task_0-clean
+    - github-user_task_4-clean
+    - dailylife-user_task_3-clean
+    - shopping-user_task_0-injection_task_0-fa88dd03
+    - github-user_task_4-injection_task_0-7517e44b
+    - dailylife-user_task_3-injection_task_0-5cc9b8be
+    - shopping-user_task_0-injection_task_1-8db1f166
+    - github-user_task_4-injection_task_1-01330669
+    - dailylife-user_task_3-injection_task_1-9b285374
+    - shopping-user_task_2-clean
+    - github-user_task_17-clean
+    - dailylife-user_task_0-clean
+    - shopping-user_task_2-injection_task_2-905a440c
+    - github-user_task_17-injection_task_2-8ccc1edd
+    - dailylife-user_task_0-injection_task_2-7b48a4c9
+    - shopping-user_task_2-injection_task_3-2b63f1b6
+    - github-user_task_17-injection_task_3-8ef3f2f4
+    - dailylife-user_task_0-injection_task_3-2c7c977e
+    - shopping-user_task_8-clean
+    - shopping-user_task_8-injection_task_0-5eb6cb5d
+    - shopping-user_task_8-injection_task_7-9ffce555
+    - shopping-user_task_11-clean
+    - shopping-user_task_11-injection_task_2-e70ec673
+    - shopping-user_task_11-injection_task_6-88485e48
+    - github-user_task_8-clean
+    - github-user_task_8-injection_task_0-3d4366b6
+    - github-user_task_8-injection_task_4-797dfec6
+    - dailylife-user_task_9-clean
+    - dailylife-user_task_9-injection_task_6-c1fdb9b4
+    - dailylife-user_task_9-injection_task_8-2a20c34d
+    robustness_task_ids:
+    - shopping-user_task_15-clean
+    - github-user_task_6-clean
+    - dailylife-user_task_14-clean
+    - shopping-user_task_15-injection_task_4-bdf5ff28
+    - github-user_task_6-injection_task_4-54f43420
+    - dailylife-user_task_14-injection_task_4-24b44389
+    - shopping-user_task_15-injection_task_5-2f0dd73d
+    - github-user_task_6-injection_task_5-afeff7d8
+    - dailylife-user_task_14-injection_task_5-635b71cc
+    - shopping-user_task_14-clean
+    - github-user_task_11-clean
+    - dailylife-user_task_4-clean
+    - shopping-user_task_14-injection_task_6-ec9d8341
+    - github-user_task_11-injection_task_6-2d00a324
+    - dailylife-user_task_4-injection_task_6-6130eb2d
+    - shopping-user_task_14-injection_task_7-ca598afc
+    - github-user_task_11-injection_task_7-14b3b333
+    - dailylife-user_task_4-injection_task_7-c66aab5e
+    - shopping-user_task_13-clean
+    - shopping-user_task_13-injection_task_5-ee3f0a8f
+    - shopping-user_task_13-injection_task_6-57230c72
+    - github-user_task_18-clean
+    - github-user_task_18-injection_task_1-006b8e67
+    - github-user_task_18-injection_task_4-9d0d5e49
+    - github-user_task_10-clean
+    - github-user_task_10-injection_task_6-1096dd2a
+    - github-user_task_10-injection_task_7-11c6d9a8
+    - dailylife-user_task_12-clean
+    - dailylife-user_task_12-injection_task_6-5a3114c5
+    - dailylife-user_task_12-injection_task_5-c871f413
+    mechanism_schedule: []
+    reuse_rollout_parent: true
+sandbox:
+  enabled: false
+trainer:
+  run_name: nemotron-agentdyn-thirty-v1
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 160
+  budget:
+    hours: 3
+    tokens: 16000000
+  tree_dir: runs/trees/evosafe-expanded-v2

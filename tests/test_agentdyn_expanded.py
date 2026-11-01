@@ -95,3 +95,23 @@ def test_full_inventory_preserves_acceptance_split_ownership(tmp_path):
         assert all_ids.isdisjoint(ids)
         all_ids.update(ids)
         assert set(splits[split]) <= ids
+
+
+def test_thirty_case_extension_retains_all_old_split_ownership(tmp_path):
+    from examples.agentdyn.prepare_thirty import prepare
+    cases = fixture_cases()
+    audit = {key: {'eligible': True} for key in cases}
+    rows, splits, assignments, _ = module.select(cases, audit)
+    source = tmp_path / 'old'
+    source.mkdir()
+    for name, ids in splits.items():
+        (source / f'{name}.txt').write_text('\n'.join(ids) + '\n')
+    full = module.export_full(source / 'full', cases, audit, assignments, 20261101)
+    first = prepare(source, tmp_path / 'new')
+    second = prepare(source, tmp_path / 'again')
+    assert first['tasks_sha256'] == second['tasks_sha256']
+    assert first['counts'] == {'train': 30, 'val': 30, 'test': 30}
+    owners = {(r['suite'], r['user_task_id']): r['split'] for r in full['groups']}
+    assert all(owners[(r['suite'], r['user_task_id'])] == r['split'] for r in first['groups'])
+    for name, ids in splits.items():
+        assert set(ids) <= set((tmp_path / 'new' / f'{name}.txt').read_text().splitlines())

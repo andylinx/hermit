@@ -1,6 +1,7 @@
 """Fair, structured evidence: every case keeps its verdict and ordered tool events."""
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 
@@ -24,11 +25,11 @@ def content_text(content):
 def summarize_case(row, chars=5000):
     messages = row.get('messages') or []
     events = []
-    for message in messages:
+    for index, message in enumerate(messages):
         role = message.get('role')
         if role == 'system':
             continue
-        event = {'role': role}
+        event = {'role': role, 'message_index': index}
         if role == 'tool':
             event['tool'] = (message.get('tool_call') or {}).get('function')
             event['error'] = message.get('error')
@@ -37,7 +38,7 @@ def summarize_case(row, chars=5000):
         text = content_text(message.get('content'))
         if text:
             event['content'] = text
-        if len(event) > 1:
+        if len(event) > 2:
             events.append(event)
     # Distribute space across events within EACH case. Never truncate serialized JSON
     # or let a long clean trajectory remove all injected/failure evidence.
@@ -50,7 +51,7 @@ def summarize_case(row, chars=5000):
                 event['content_truncated'] = True
         if event.get('tool_calls'):
             event['tool_calls'] = [
-                {'function': c.get('function'), 'args': clip(json.dumps(c.get('args', {})), allowance)}
+                {'function': c.get('function'), 'args': clip(json.dumps(c.get('args', {})), max(allowance, 1200))}
                 for c in event['tool_calls']]
     return {'id': row.get('id'), 'status': row.get('status'), 'output': row.get('output'),
             'judge': row.get('judge'), 'events': events, 'event_count': len(events)}
@@ -70,7 +71,13 @@ def audit_evidence(directory, chars=2500):
         if not isinstance(rows, list):
             raise ValueError('hook audit must be a list')
         rows = [row for row in rows if isinstance(row, dict)]
-        selected = rows if len(rows) <= 12 else rows[:6] + rows[-6:]
+        # Preserve interventions in the middle, not merely the trajectory ends.
+        blocked = [i for i, row in enumerate(rows) if row.get('blocked')]
+        changed = [i for i, row in enumerate(rows) if row.get('output_changed')
+                   or row.get('requested_arguments') != row.get('arguments')]
+        priorities = list(range(len(rows)))[:3] + list(range(len(rows)))[-3:] + blocked + changed
+        indexes = sorted(list(dict.fromkeys(priorities))[:12])
+        selected = [rows[i] for i in indexes] if len(rows) > 12 else rows
         allowance = max(40, int(chars) // max(1, len(selected) * 2))
         events = []
         for row in selected:
@@ -112,3 +119,75 @@ def result_evidence(rows, chars=5000):
             item['audit'] = audit
         evidence.append(item)
     return evidence
+
+
+def failure_packet(parent_rows, candidate_rows=None, tasks=None, chars=14000, max_details=9):
+    """Paired TRAIN evidence, prioritizing failures without changing evaluation sampling.
+
+    Every case retains an indexed verdict; richer dossiers cover error, regression,
+    attack-success and control categories. No test discovery or new attacks.
+    """
+    tasks = tasks or {}
+    parents = {(r['id'], r.get('repeat', 1)): r for r in parent_rows}
+    baseline = candidate_rows is None
+    rows = parent_rows if baseline else candidate_rows
+    indexed, buckets = [], {k: [] for k in ('runtime_error', 'clean_utility_regression',
+        'attack_succeeded', 'injected_utility_regression', 'utility_failure', 'control')}
+    for row in rows:
+        key = (row['id'], row.get('repeat', 1))
+        parent = parents.get(key)
+        out, old = row.get('output') or {}, (parent or {}).get('output') or {}
+        kind = out.get('kind') or old.get('kind')
+        tags = []
+        if row['status'] != 'ok':
+            tags.append('runtime_error')
+        else:
+            if out.get('attack_success'):
+                tags.append('attack_succeeded')
+            if not out.get('utility'):
+                tags.append('utility_failure')
+            if not baseline and old.get('utility') and not out.get('utility'):
+                tags.insert(0, 'clean_utility_regression' if kind == 'clean' else 'injected_utility_regression')
+        tags = tags or ['control']
+        indexed.append({'id': row['id'], 'repeat': key[1], 'tags': tags,
+                        'parent_status': (parent or {}).get('status'), 'parent_output': (parent or {}).get('output'),
+                        'candidate_status': None if baseline else row['status'],
+                        'candidate_output': None if baseline else row.get('output')})
+        for tag in tags:
+            buckets[tag].append(key)
+    # Round-robin category coverage prevents many attack cases hiding clean losses.
+    selected = []
+    while any(buckets.values()) and len(selected) < max_details:
+        for bucket in buckets.values():
+            if bucket:
+                key = bucket.pop(0)
+                if key not in selected and len(selected) < max_details:
+                    selected.append(key)
+    by_key = {(r['id'], r.get('repeat', 1)): r for r in rows}
+    dossiers = []
+    def detail(row):
+        evidence = result_evidence([row], chars)[0]
+        calls = [c for e in evidence['events'] for c in e.get('tool_calls', [])]
+        counts = Counter((c.get('function'), c.get('args')) for c in calls)
+        evidence['repeated_calls'] = [{'tool': tool, 'arguments': args, 'count': count}
+                                      for (tool, args), count in counts.most_common() if count > 1]
+        return evidence
+    for key in selected:
+        row, parent = by_key[key], parents.get(key)
+        dossier = {'id': key[0], 'repeat': key[1], 'parent': detail(parent) if parent else None,
+                   'candidate': None if baseline else detail(row)}
+        task = tasks.get(key[0], {})
+        if task.get('injection_task_id'):
+            # A same-user clean counterpart distinguishes base-agent failure from
+            # an injected-only effect; metadata supplies pairing, never ID parsing.
+            clean = next((r for r in rows if tasks.get(r['id'], {}).get('suite') == task.get('suite')
+                          and tasks.get(r['id'], {}).get('user_task_id') == task.get('user_task_id')
+                          and not tasks.get(r['id'], {}).get('injection_task_id')
+                          and r.get('repeat', 1) == key[1]), None)
+            if clean:
+                dossier['clean_control'] = summarize_case(clean)
+                dossier['clean_control']['id'] = clean['id']
+        dossiers.append(dossier)
+    return {'scope': 'training-only diagnosis; selected dossiers are not the evaluation denominator',
+            'baseline_only': baseline, 'case_index': indexed, 'dossiers': dossiers,
+            'detail_count': len(dossiers), 'case_count': len(indexed)}
