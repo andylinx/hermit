@@ -277,3 +277,77 @@ def test_invalid_mechanism_schedule_rejected_before_model_or_evaluation(tmp_path
     result = roles.run(ctx, ids)
     assert result.status == 'failed' and 'mechanism_schedule' in result.extra['error']
     assert not calls and not inputs
+
+
+def verified_current_rollouts(ctx):
+    import hashlib
+    current = ctx.workspace.learning_material / 'current'
+    (current / 'summary.json').write_text(json.dumps({'step': 1, 'epoch': 1}))
+    digest = hashlib.sha256()
+    for name in ('ADAPTER.md', 'defense.py'):
+        digest.update(name.encode() + (ctx.workspace.adapter / name).read_bytes())
+    for path in (current / 'tasks').glob('*.json'):
+        row = json.loads(path.read_text())
+        row['pipeline_extra'] = {'adapter_sha256': digest.hexdigest(),
+            'case_sha256': hashlib.sha256(json.dumps(row['input'], sort_keys=True).encode()).hexdigest(),
+            'model': 'frozen-victim', 'generation': {'temperature': 0}}
+        log = current / 'trajectories' / row['id']
+        log.mkdir(parents=True)
+        (log / 'trajectory.json').write_text(json.dumps(row['messages']))
+        row['trajectory'] = str(log.relative_to(current))
+        path.write_text(json.dumps(row))
+
+
+def test_verified_current_rollouts_reused_without_parent_calls(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'review_reject')
+    verified_current_rollouts(ctx)
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and not calls
+    assert result.extra['parent_source']['kind'] == 'current_step_rollouts'
+    assert result.extra['parent_source']['already_metered_as'] == 'rollout'
+    parent = json.loads((ctx.workspace.output / 'parent-results.json').read_text())
+    assert len(parent) == len(ids)
+    assert all(row['parent_source'] == 'current_step_rollouts' and row['messages'] for row in parent)
+    assert all(Path(row['log']).is_relative_to(ctx.workspace.learning_material / 'current/trajectories') for row in parent)
+
+
+@pytest.mark.parametrize('broken', ['adapter', 'case', 'metadata', 'id', 'missing', 'duplicate', 'stale', 'repeat', 'disabled'])
+def test_parent_reuse_rejects_unverified_material_and_falls_back(tmp_path, broken):
+    ctx, ids, calls, inputs = context(tmp_path, 'review_reject', repeats=2 if broken == 'repeat' else 1)
+    verified_current_rollouts(ctx)
+    current = ctx.workspace.learning_material / 'current'
+    path = next((current / 'tasks').glob('*.json'))
+    row = json.loads(path.read_text())
+    if broken in ('adapter', 'case'):
+        row['pipeline_extra'][broken + '_sha256'] = 'wrong'
+    elif broken == 'metadata':
+        row.pop('pipeline_extra')
+    elif broken == 'id':
+        row['input']['id'] = 'wrong'
+    elif broken == 'missing':
+        # Keep type metadata available through validation so fresh evaluation is possible.
+        with (ctx.access.validation / 'tasks.jsonl').open('a') as out:
+            out.write(json.dumps(row['input']) + '\n')
+        path.unlink()
+    elif broken == 'duplicate':
+        (current / 'tasks/duplicate.json').write_text(json.dumps(row))
+    elif broken == 'stale':
+        (current / 'summary.json').write_text(json.dumps({'step': 0, 'epoch': 1}))
+    elif broken == 'disabled':
+        ctx.params['reuse_rollout_parent'] = False
+    if broken != 'missing':
+        path.write_text(json.dumps(row))
+    result = roles.run(ctx, ids)
+    assert result.status == 'done', result.extra
+    assert result.extra['parent_source']['kind'] == 'fresh_evaluation'
+    assert calls and all(not changed for _, changed in calls)
+
+
+def test_validation_only_selection_never_reuses_training_cache(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'review_reject')
+    verified_current_rollouts(ctx)
+    val_ids = ctx.params.pop('robustness_task_ids')
+    result = roles.run(ctx, val_ids)
+    assert result.status == 'done'
+    assert result.extra['parent_source']['kind'] == 'fresh_evaluation'
+    assert calls[0][0] == val_ids

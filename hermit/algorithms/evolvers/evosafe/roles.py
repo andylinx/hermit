@@ -172,6 +172,49 @@ def public_context(ws):
     return context
 
 
+def reuse_parent_rollouts(ctx, ids, rows, repeats):
+    """Reuse only this step's fully verified TRAIN rollouts, never a partial cache."""
+    source = {'kind': 'fresh_evaluation', 'reason': 'reuse disabled or repeated evaluation'}
+    if not ctx.params.get('reuse_rollout_parent', True) or repeats != 1:
+        return None, source
+    current = (ctx.workspace.learning_material / 'current').resolve()
+    root = ctx.workspace.learning_material.resolve()
+    summary_path = current / 'summary.json'
+    if not current.is_relative_to(root) or not summary_path.is_file():
+        return None, {**source, 'reason': 'missing current-step provenance'}
+    summary = json.loads(summary_path.read_text())
+    if (ctx.progress is None or summary.get('step') != ctx.progress.step
+            or summary.get('epoch') != ctx.progress.epoch):
+        return None, {**source, 'reason': 'material is not from the current step'}
+    selected = [r for r in rows if r.get('id') in set(ids)]
+    if len(selected) != len(ids) or {r.get('id') for r in selected} != set(ids):
+        return None, {**source, 'reason': 'incomplete or duplicate train coverage'}
+    digest = hashlib.sha256()
+    for name in ('ADAPTER.md', 'defense.py'):
+        digest.update(name.encode() + (ctx.workspace.adapter / name).read_bytes())
+    adapter_hash = digest.hexdigest()
+    verified = {}
+    for row in selected:
+        task, provenance = row.get('input'), row.get('pipeline_extra') or {}
+        if (row.get('status') != 'ok' or not isinstance(task, dict)
+                or task.get('id') != row['id']
+                or provenance.get('adapter_sha256') != adapter_hash
+                or provenance.get('case_sha256') != hashlib.sha256(json.dumps(task, sort_keys=True).encode()).hexdigest()):
+            return None, {**source, 'reason': 'rollout status, case or adapter provenance mismatch'}
+        copied = {**row, 'repeat': 1, 'parent_source': 'current_step_rollouts'}
+        copied.pop('log', None)
+        if isinstance(row.get('trajectory'), str):
+            relative = Path(row['trajectory'])
+            log = (current / relative).resolve()
+            if (not relative.is_absolute() and relative.parts and relative.parts[0] == 'trajectories'
+                    and log.is_relative_to(current / 'trajectories') and log.exists()):
+                copied['log'] = str(log)
+        verified[row['id']] = copied
+    return [verified[i] for i in ids], {'kind': 'current_step_rollouts',
+        'step': ctx.progress.step, 'epoch': ctx.progress.epoch, 'adapter_sha256': adapter_hash,
+        'cases': len(ids), 'already_metered_as': 'rollout', 'material': str(current)}
+
+
 def run(ctx, ids):
     ws, p = ctx.workspace, ctx.params
     usage, trials = [], []
@@ -216,7 +259,12 @@ def run(ctx, ids):
             raise ValueError('robustness_task_ids must be unique disjoint validation IDs')
         evidence = training_evidence(ws, int(p.get('evidence_chars_per_case', 5000)))
         (ws.output / 'training-evidence.json').write_text(json.dumps(evidence, indent=2))
-        parent_rows = evaluate_batch(ctx, ws.adapter, ordered, repeats)
+        parent_rows, parent_source = reuse_parent_rollouts(ctx, ordered, training_rows, repeats)
+        report['parent_source'] = parent_source
+        if parent_rows is None:
+            parent_rows = evaluate_batch(ctx, ws.adapter, ordered, repeats)
+            for row in parent_rows:
+                row['parent_source'] = 'fresh_evaluation'
         (ws.output / 'parent-results.json').write_text(json.dumps(parent_rows, indent=2))
         parent_metrics = aggregate(parent_rows)
         report['initial_parent'] = parent_metrics

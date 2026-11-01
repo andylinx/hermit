@@ -123,3 +123,11 @@ explicitly stated in public task information.
 
 Latest regression after these search changes: **79 passed**. Phase 2 is recorded
 separately as `runs/nemotron-agentdyn-expanded-diverse-v2/`; phase 1 is not overwritten.
+
+A subsequent efficiency patch can reuse **current-step** training rollouts as parent
+measurements only with complete unique coverage, matching step/epoch, successful
+status, and matching case/adapter hashes; repeated evaluation, validation-only cases,
+or any mismatch fall back to fresh evaluation. This does not reuse old runs or test
+records. The running phase 2 process loaded its role module four seconds before
+that patch landed, so this recorded experiment still performs fresh parent calls.
+Latest complete regression including cache/provenance rejection tests: **90 passed**.

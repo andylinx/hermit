@@ -7,6 +7,7 @@ params:
   mechanism_schedule: []
   cascade_sizes: [6, 12]
   evaluation_repeats: 1
+  reuse_rollout_parent: true
   evidence_chars_per_case: 5000
   robustness_task_ids: []
   proposer: llm
