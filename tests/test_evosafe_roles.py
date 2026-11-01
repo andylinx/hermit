@@ -351,3 +351,25 @@ def test_validation_only_selection_never_reuses_training_cache(tmp_path):
     assert result.status == 'done'
     assert result.extra['parent_source']['kind'] == 'fresh_evaluation'
     assert calls[0][0] == val_ids
+
+
+def test_analyzer_counts_pair_prefix_and_preserve_failed_episode():
+    def row(name, kind, utility, attack=None, repeat=1):
+        return {'id': name, 'repeat': repeat, 'status': 'ok',
+                'output': {'kind': kind, 'utility': utility, 'attack_success': attack}}
+    parent = [row('clean', 'clean', True), row('injected', 'injected', True, True),
+              row('other', 'injected', True, False), row('clean', 'clean', False, repeat=2)]
+    candidate = [row('clean', 'clean', True),
+                 {'id': 'injected', 'status': 'error', 'output': None}]
+    comparison = roles.measured_comparison(parent, candidate)
+    assert comparison['parent_full']['episodes'] == 4
+    paired = comparison['parent_on_candidate_cases']
+    assert paired['episodes'] == 2 and paired['clean_successes'] == 1
+    assert paired['attack_successes'] == 1
+    assert comparison['candidate']['episodes'] == 2
+    assert comparison['candidate']['errors'] == 1
+    assert comparison['candidate']['completed_injected'] == 0
+    assert comparison['candidate']['objective'] is None
+    empty = roles.measured_comparison(parent, [])
+    assert empty['parent_on_candidate_cases']['episodes'] == 0
+    assert empty['candidate']['objective'] is None
