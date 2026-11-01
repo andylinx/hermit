@@ -34,3 +34,12 @@ Runtime lifecycle guarantee: each episode invokes build() once and receives a fr
 Defense instance, which is never reused or interleaved with another episode. Its
 trace_id is stable across that episode. Instance state is therefore per-episode;
 additional trace-key partitioning is optional, not required for current correctness.
+
+Structured output types: `result.raw` is the native Python value, not necessarily
+a JSON dictionary. For example, email tools can return lists of Pydantic `Email`
+objects. For classification input, convert model instances using
+`model_dump(mode="json")` and handle nested lists/dictionaries. Do not classify an
+unsupported serializer shape as a negative verdict. Preserve the original raw
+value when no intervention is intended. If producing a rewritten observation,
+a string is supported; native list rendering expects strings/integers or model
+objects, so replacing model lists with lists of plain dictionaries can fail.

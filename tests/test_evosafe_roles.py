@@ -175,6 +175,54 @@ def test_seed_failure_evidence_cannot_include_nontraining_cases(tmp_path):
     assert 'current TRAIN selection' in result.extra['error']
 
 
+def test_incomplete_parent_bounds_are_optimistic_for_every_missing_verdict():
+    import itertools
+    tasks = {t['id']: t for t in [{'id': 'c1'}, {'id': 'c2'},
+        {'id': 'i1', 'injection_task_id': 'frozen'}, {'id': 'i2', 'injection_task_id': 'frozen'}]}
+    rows = [outcome(tasks['c1']), {'id': 'c2', 'status': 'error', 'output': None},
+            outcome(tasks['i1'], attack=True), {'id': 'i2', 'status': 'error', 'output': None}]
+    bound = roles.parent_reference(rows, tasks, 'conservative_bounds')
+    assert bound['measured_objective'] is None and bound['errors'] == 2
+    for clean, attack, injected_utility in itertools.product([False, True], repeat=3):
+        completed = [rows[0], outcome(tasks['c2'], clean=clean), rows[2],
+                     outcome(tasks['i2'], clean=injected_utility, attack=attack)]
+        measured = roles.aggregate(completed)
+        assert bound['clean_utility'] >= measured['clean_utility']
+        assert bound['asr'] <= measured['asr']
+        assert bound['objective'] >= measured['objective']
+    with pytest.raises(ValueError):
+        roles.parent_reference(rows, tasks)
+
+
+def test_different_count_combinations_with_equal_score_cannot_win_by_rounding():
+    assert not roles.qualifying_gain({'objective': 0.5 - 0.4}, {'objective': 0.8 - 0.7}, {})
+    assert roles.qualifying_gain({'objective': 0.1}, {'objective': 0.15}, {})
+
+
+@pytest.mark.parametrize('candidate_fails', [False, True])
+def test_failed_parent_still_reaches_roles_but_failed_candidate_cannot_win(tmp_path, candidate_fails):
+    ctx, ids, calls, inputs = context(tmp_path, 'improve')
+    ctx.params['parent_error_policy'] = 'conservative_bounds'
+    ctx.params['cascade_sizes'] = [len(ids)]
+    original = ctx.tools['run_agent']
+    def evaluate(task_ids, adapter):
+        answer = original(task_ids, adapter)
+        if candidate_fails and Path(adapter) != ctx.workspace.adapter:
+            answer['results'][0] = {'id': task_ids[0], 'status': 'error', 'output': None}
+        if Path(adapter) == ctx.workspace.adapter and task_ids == roles.balanced_ids([
+                {'id': i, 'suite': 'shopping', **({'injection_task_id': 'frozen'} if i.endswith('injected') else {})}
+                for i in ids]):
+            answer['results'][-1] = {'id': task_ids[-1], 'status': 'error', 'output': None}
+        return answer
+    ctx.tools['run_agent'] = evaluate
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and len(inputs) == 3
+    assert result.extra['accepted'] == (not candidate_fails)
+    assert result.extra['initial_parent']['measured_objective'] is None
+    assert inputs[-1][1]['measured_comparison']['parent_full']['errors'] == 1
+    assert inputs[-1][1]['measured_comparison']['candidate']['errors'] == int(candidate_fails)
+
+
 def test_probe_cannot_overlap_selection_or_name_test(tmp_path):
     ctx, ids, calls, _ = context(tmp_path)
     ctx.params['robustness_task_ids'] = ['test-secret']

@@ -237,3 +237,31 @@ empirical evaluation, not as a proof of complete security coverage. See
 For the recorded follow-up, the preceding run's `workspace/state/lessons.json` was
 copied into the fresh run's `workspace/state/lessons.json` before `hermit train`;
 only training-side lessons were carried over, never test results.
+
+### Paired failure debugging and 30-case scoring
+
+The original Harness's scored stage has 30 cases. The follow-up protocol uses
+30 cases per split (10 clean, 20 injected from 10 user-task groups), keeps all old
+split ownership, and scores the entire training batch before the utility gate:
+
+```bash
+python examples/agentdyn/prepare_thirty.py \
+  examples/agentdyn/data/expanded-v2 examples/agentdyn/data/thirty-v1
+python examples/agentdyn/debug_failures.py \
+  examples/agentdyn/runs/nemotron-agentdyn-expanded-diverse-v2 \
+  examples/agentdyn/runs/paired-debug-v1 --analyze
+hermit train --config examples/agentdyn/nvidia-thirty.yaml
+```
+
+`debug_failures.py` works on a recorded search with an unchanged parent. It reads
+training logs only, preserves all verdicts, builds paired detailed failure dossiers,
+and optionally runs fresh Codex Analyzers. `--resume` reuses completed diagnostics.
+The live search now forwards failed candidate source and dossiers directly to the
+next Designer and refreshes parent evidence from the same measurements as its score.
+The dossier subset is for diagnosis, never a different scoring denominator.
+
+For the recorded thirty-case run, corrected analyses seed `workspace/state/lessons.json`;
+the last paired diagnostic seeds `workspace/state/previous_candidate_evidence.json`.
+Only IDs in the current training selection are accepted by the seed check. Seed
+provenance is recorded separately in the run directory. Starting without these
+optional seed files is valid but does not reproduce the exact recorded search.

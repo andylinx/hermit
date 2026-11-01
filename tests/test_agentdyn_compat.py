@@ -56,6 +56,37 @@ def test_structured_mutation_context_raw_and_state():
     assert all(a["output_changed"] for a in audit)
 
 
+def test_native_model_list_can_be_classified_without_changing_observation():
+    pytest.importorskip('agentdojo')
+    from pydantic import BaseModel
+    from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+
+    class NativeMessage(BaseModel):
+        body: str
+
+    seen = []
+
+    class Classifier:
+        def classify(self, instruction, text):
+            seen.append(json.loads(text))
+            return {'status': 'ok', 'has_injected_instruction': False}
+
+    class Observe(Defense):
+        def on_post_tool_call(self, ctx, result):
+            payload = [item.model_dump(mode='json') for item in result.raw]
+            ctx.classify_output(json.dumps(payload))
+
+    runtime, audit = Runtime(), []
+    runtime.raw = [NativeMessage(body='ordinary task fact')]
+    original = tool_result_to_str(runtime.raw)
+    wrapped = GuardedRuntime(runtime, Observe(), 'read my message', 'trace', tool_result_to_str,
+                             audit, 'dailylife', Classifier())
+    assert wrapped.run_function({}, 'read', {}) == (original, None)
+    assert seen == [[{'body': 'ordinary task fact'}]]
+    assert not audit[0]['output_changed']
+    assert isinstance(runtime.raw[0], NativeMessage)
+
+
 @pytest.mark.parametrize("phase", ["pre", "post"])
 def test_permission_refusal_has_explicit_execution_boundary(phase):
     class Refuse(Defense):
