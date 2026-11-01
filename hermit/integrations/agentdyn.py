@@ -12,13 +12,37 @@ import hashlib
 import inspect
 import json
 from pathlib import Path
+import sys
 import tempfile
 import time
+from types import ModuleType
 import uuid
 
 from hermit.task import JudgeResult, RunOutput
+from hermit.integrations.evosafe_hooks import ToolCallContext, ToolCallResult
 
 AGENTDYN_REVISION = "5353cf7615b135cace8d07c8f12dac53a16b6db3"
+
+
+class EpisodeFailure(RuntimeError):
+    """Sanitized episode error retaining metered usage and partial trajectory."""
+
+    def __init__(self, reason, *, log, usage, price=None):
+        super().__init__(reason)
+        self.log, self.usage, self.price = log, usage, price
+
+    @property
+    def tokens(self):
+        if self.usage is None or self.usage["unknown_usage_calls"]:
+            return None
+        return self.usage["input_tokens"] + self.usage["output_tokens"]
+
+    @property
+    def cost_usd(self):
+        if self.tokens is None or self.price is None:
+            return None
+        return (self.usage["input_tokens"] * self.price["input"] +
+                self.usage["output_tokens"] * self.price["output"]) / 1e6
 
 
 def encode(value):
@@ -37,9 +61,19 @@ def load_defense(adapter: Path | None):
         return None
     # Compile source directly: no stale import cache or writes into the adapter.
     path = adapter / "defense.py"
-    namespace = {"__name__": "_evosafe_candidate", "__file__": str(path)}
-    exec(compile(path.read_text(), str(path), "exec"), namespace)
-    defense = namespace["build"]()
+    module_name = "_evosafe_candidate_" + uuid.uuid4().hex
+    module = ModuleType(module_name)
+    module.__file__ = str(path)
+    # dataclasses with postponed annotations resolve their defining module at
+    # class creation. A unique temporary module also avoids concurrent clashes.
+    sys.modules[module_name] = module
+    try:
+        exec(compile(path.read_text(), str(path), "exec"), module.__dict__)
+        defense = module.build()
+    finally:
+        sys.modules.pop(module_name, None)
+    if getattr(defense, "hook_api", "dict-v1") not in {"dict-v1", "structured-v1"}:
+        raise ValueError("unsupported defense hook_api")
     for name in ("system_prompt_transform", "on_pre_tool_call", "on_post_tool_call"):
         if not callable(getattr(defense, name, None)):
             raise ValueError(f"defense is missing {name}")
@@ -65,17 +99,91 @@ def validate_case(task: dict) -> None:
 class GuardedRuntime:
     """A per-executor facade: no monkey patching of the suite or shared runtime."""
 
-    def __init__(self, runtime, defense, instruction, trace_id, formatter, audit):
+    def __init__(self, runtime, defense, instruction, trace_id, formatter, audit, server="agentdyn", classifier=None):
         self.functions = runtime.functions
         self.runtime, self.defense = runtime, defense
         self.instruction, self.trace_id = instruction, trace_id
         self.formatter, self.audit = formatter, audit
+        self.server = server
+        self.classifier = classifier
+
+    def _refuse(self, name, args, reason, *, executed=False):
+        self.audit.append({"tool": name, "blocked": True, "arguments": copy.deepcopy(args),
+                           "phase": "post" if executed else "pre", "executed": executed})
+        return "", f"Refused by security policy: {reason or 'outside authorized scope'}"
+
+    def _structured(self, env, name, args):
+        tools = {}
+        for key, fn in self.functions.items():
+            parameters = getattr(fn, "parameters", None)
+            tools[key] = {"name": getattr(fn, "name", key),
+                          "description": getattr(fn, "description", ""),
+                          "parameters": parameters.model_json_schema() if parameters is not None else {}}
+        before = copy.deepcopy(args)
+        ctx = ToolCallContext("agentdyn", self.server, name, copy.deepcopy(args), self.trace_id,
+                              {"instruction": self.instruction, "available_tools": tools})
+        if self.classifier is not None:
+            ctx.classify_output = lambda text: self.classifier.classify(self.instruction, text)
+        try:
+            revised_ctx = invoke(self.defense.on_pre_tool_call, ctx)
+        except PermissionError as exc:
+            return self._refuse(name, before, str(exc))
+        if revised_ctx is not None:
+            if not isinstance(revised_ctx, ToolCallContext):
+                raise TypeError("structured pre-hook must return ToolCallContext or None")
+            ctx = revised_ctx
+        if (ctx.framework != "agentdyn" or ctx.server != self.server or ctx.tool_name != name
+                or ctx.trace_id != self.trace_id or not isinstance(ctx.metadata, dict)
+                or ctx.metadata.get("instruction") != self.instruction):
+            raise ValueError("pre-hook may rewrite arguments and custom metadata, not call identity or trusted instruction")
+        if not isinstance(ctx.arguments, dict):
+            raise TypeError("hook arguments must be an object")
+        args.clear()
+        args.update(copy.deepcopy(ctx.arguments))
+        started = time.monotonic()
+        try:
+            raw, error = self.runtime.run_function(env, name, args)
+            result = ToolCallResult(copy.deepcopy(raw), error is not None, time.monotonic() - started, error=error)
+        except Exception as exc:
+            # Expose a genuine runtime exception to the audit hook, but do not
+            # turn unexpected environment failures into a successful episode.
+            result = ToolCallResult(is_error=True, duration=time.monotonic() - started, exception=exc)
+            try:
+                invoke(self.defense.on_post_tool_call, ctx, result)
+            finally:
+                raise
+        original_text = self.formatter(raw)
+        try:
+            revised = invoke(self.defense.on_post_tool_call, ctx, result)
+        except PermissionError as exc:
+            return self._refuse(name, args, str(exc), executed=True)
+        if revised is not None:
+            if not isinstance(revised, ToolCallResult):
+                raise TypeError("structured post-hook must return ToolCallResult or None")
+            result = revised
+        if isinstance(result.exception, PermissionError):
+            return self._refuse(name, args, str(result.exception), executed=True)
+        if result.exception is not None:
+            raise result.exception
+        if type(result.is_error) is not bool or (result.error is not None and not isinstance(result.error, str)):
+            raise TypeError("invalid structured result error fields")
+        text = self.formatter(result.raw)
+        error = (result.error or "Tool reported an error") if result.is_error else None
+        self.audit.append({"tool": name, "blocked": False, "requested_arguments": before,
+                           "arguments": copy.deepcopy(args), "output_changed": text != original_text,
+                           "hook_api": "structured-v1", "duration": result.duration})
+        return text, error
 
     def run_function(self, env, name, args):
+        if getattr(self.defense, "hook_api", "dict-v1") == "structured-v1":
+            return self._structured(env, name, args)
         ctx = {"instruction": self.instruction, "trace_id": self.trace_id,
                "tool_name": name, "arguments": copy.deepcopy(args)}
         before = copy.deepcopy(args)
-        decision = invoke(self.defense.on_pre_tool_call, copy.deepcopy(ctx)) if self.defense else None
+        try:
+            decision = invoke(self.defense.on_pre_tool_call, copy.deepcopy(ctx)) if self.defense else None
+        except PermissionError as exc:
+            return self._refuse(name, before, str(exc))
         if decision is not None and not isinstance(decision, dict):
             raise TypeError("pre-hook must return None or a decision dict")
         decision = decision or {}
@@ -84,8 +192,7 @@ class GuardedRuntime:
         if "block" in decision:
             if not isinstance(decision["block"], str) or not decision["block"]:
                 raise ValueError("block must be a nonempty explanation")
-            self.audit.append({"tool": name, "blocked": True, "arguments": before})
-            return "", f"Refused by security policy: {decision['block']}"
+            return self._refuse(name, before, decision["block"])
         if "arguments" in decision:
             if not isinstance(decision["arguments"], dict):
                 raise TypeError("arguments must be an object")
@@ -96,7 +203,10 @@ class GuardedRuntime:
         # The native suite injected its environment before execution. The hook sees
         # the same serialized content the native executor would send to the model.
         result = {"text": self.formatter(raw), "error": error}
-        revised = invoke(self.defense.on_post_tool_call, copy.deepcopy(ctx), copy.deepcopy(result)) if self.defense else None
+        try:
+            revised = invoke(self.defense.on_post_tool_call, copy.deepcopy(ctx), copy.deepcopy(result)) if self.defense else None
+        except PermissionError as exc:
+            return self._refuse(name, args, str(exc), executed=True)
         if revised is not None:
             if (not isinstance(revised, dict) or set(revised) != {"text", "error"}
                     or not isinstance(revised["text"], str)
@@ -126,12 +236,21 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     logs.mkdir(parents=True, exist_ok=True)
     log = Path(tempfile.mkdtemp(prefix="episode-", dir=logs))
     victim = None
+    classifier = None
     if params.get("api_script") or params.get("base_url"):
         from hermit.integrations.openai_victim import make_victim
         def record_call(event):
             with (log / "llm-calls.jsonl").open("a") as stream:
                 stream.write(json.dumps(event) + "\n")
         victim = make_victim(params, base, on_call=record_call)
+        if (params.get("auditor") or {}).get("enabled"):
+            from hermit.integrations.evosafe_auditor import OutputClassifier
+            def record_auditor_call(event):
+                with (log / "llm-auditor-calls.jsonl").open("a") as stream:
+                    stream.write(json.dumps(event) + "\n")
+            classifier = OutputClassifier(params, base, on_call=record_auditor_call)
+    elif (params.get("auditor") or {}).get("enabled"):
+        raise ValueError("semantic auditor requires the compatible victim provider")
     config = PipelineConfig(llm=victim if victim is not None else params["model"], model_id=None, defense=None,
                             system_message_name=None, system_message=None, suite_name=task["suite"])
     if adapter is not None:
@@ -145,8 +264,10 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
 
     class Executor(ToolsExecutor):
         def query(self, query, runtime, env, messages=(), extra_args=None):
-            facade = GuardedRuntime(runtime, defense, query, trace_id, tool_result_to_str, audit)
+            captured[:] = messages
+            facade = GuardedRuntime(runtime, defense, query, trace_id, tool_result_to_str, audit, task["suite"], classifier)
             q, _, e, m, a = super().query(query, facade, env, messages, extra_args or {})
+            captured[:] = m
             return q, runtime, e, m, a
 
     loops = [element for element in pipeline.elements if isinstance(element, ToolsExecutionLoop)]
@@ -182,8 +303,17 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
             "user_task_id": task["user_task_id"], "error_type": type(exc).__name__}))
         (log / "trajectory.json").write_text(json.dumps(captured, default=encode))
         (log / "audit.json").write_text(json.dumps(audit))
-        raise
+        reason = "episode did not produce a terminal assistant response" if (
+            isinstance(exc, RuntimeError) and str(exc) == "episode did not produce a terminal assistant response"
+        ) else f"episode failed: {type(exc).__name__}; inspect local failure artifacts"
+        raise EpisodeFailure(reason, log=log, usage=victim.usage if victim is not None else None,
+                             price=params.get("price")) from None
     finally:
+        if classifier is not None:
+            classifier.close()
+            (log / "auditor-usage.json").write_text(json.dumps(classifier.usage, indent=2))
+            for key, value in classifier.usage.items():
+                victim.usage[key] += value
         if victim is not None:
             victim.close()
             # Keep usage even when a truncated/failed episode cannot produce a
@@ -212,6 +342,8 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     tokens, cost = None, None
     if victim is not None:
         provenance["usage"] = victim.usage
+        if classifier is not None:
+            provenance["auditor_usage"] = classifier.usage
         if not victim.usage["unknown_usage_calls"]:
             tokens = victim.usage["input_tokens"] + victim.usage["output_tokens"]
             if params.get("price") is not None:

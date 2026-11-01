@@ -1,0 +1,241 @@
+"""Multi-role search contracts; all model and evaluation calls are local doubles."""
+import json
+from pathlib import Path
+import shutil
+
+import pytest
+
+from hermit.evolver.base import Access, Progress, StepContext, Workspace
+from hermit.algorithms.evolvers.evosafe import roles
+from hermit.algorithms.evolvers.evosafe.evidence import training_evidence, result_evidence
+
+TEMPLATE = Path(__file__).resolve().parents[1] / 'hermit/algorithms/templates/evosafe'
+
+
+def outcome(task, clean=True, attack=False):
+    injected = bool(task.get('injection_task_id'))
+    return {'id': task['id'], 'status': 'ok', 'output': {
+        'kind': 'injected' if injected else 'clean', 'utility': clean,
+        'attack_success': attack if injected else None}, 'judge': {}}
+
+
+def context(tmp_path, mode='improve', proposals=1, repeats=1):
+    paths = {name: tmp_path / name for name in Workspace.__dataclass_fields__}
+    for path in paths.values():
+        path.mkdir()
+    shutil.copytree(TEMPLATE, paths['adapter'], dirs_exist_ok=True)
+    train = [{'id': f'train-{n}-{kind}', 'suite': 'shopping',
+              **({'injection_task_id': 'frozen'} if kind == 'injected' else {})}
+             for n in range(2) for kind in ('clean', 'injected')]
+    val = [dict(row, id=row['id'].replace('train', 'val')) for row in train[:2]]
+    material = paths['learning_material'] / 'current/tasks'
+    material.mkdir(parents=True)
+    for row in train:
+        (material / (row['id'] + '.json')).write_text(json.dumps({
+            **outcome(row, attack=True), 'input': row,
+            'messages': [{'role': 'user', 'content': 'Complete the legitimate task.'}]}))
+    validation = tmp_path / 'validation'
+    validation.mkdir()
+    (validation / 'tasks.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in val))
+    rows = {r['id']: r for r in train + val}
+    calls, inputs = [], []
+
+    def evaluate(task_ids, adapter):
+        assert not any('test' in tid for tid in task_ids)
+        changed = Path(adapter) != paths['adapter']
+        calls.append((list(task_ids), changed))
+        return {'results': [outcome(rows[tid], clean=not (changed and mode == 'regress'),
+            attack=(changed if mode == 'probe_regress' and tid.startswith('val') else not changed or mode == 'tie'))
+            for tid in task_ids]}
+
+    def llm(messages, **kwargs):
+        role = messages[0]['content']
+        payload = json.loads(messages[1]['content'])
+        inputs.append((role, payload))
+        if 'ROLE: Designer.' in role:
+            files = {n: (paths['adapter'] / n).read_text() for n in roles.EDITABLE}
+            files['ADAPTER.md'] = 'evidence grounded tested defense'
+            answer = {'summary': 'one mechanism', 'files': files}
+        elif 'ROLE: Criticizer.' in role:
+            assert 'previous_trials' not in payload
+            answer = {'approved': mode != 'review_reject', 'summary': 'reviewed',
+                      'utility_risks': [], 'generalization_risks': [], 'required_changes': []}
+        else:
+            answer = {'diagnosis': 'measured outcomes', 'lessons': ['preserve legitimate completion'],
+                      'next_hypothesis': 'one scoped change'}
+        return {'content': json.dumps(answer)}
+
+    ctx = StepContext(workspace=Workspace(**paths), access=Access(validation=validation),
+        tools={'run_agent': evaluate, 'llm': llm, 'check_spec': lambda **kwargs: {'passed': True, 'issues': []}},
+        params={'proposer': 'llm', 'max_proposals': proposals, 'cascade_sizes': [2],
+                'evaluation_repeats': repeats, 'robustness_task_ids': [r['id'] for r in val]},
+        progress=Progress(1, 1, True))
+    return ctx, [r['id'] for r in train], calls, inputs
+
+
+def test_evidence_never_drops_injected_case_or_last_action(tmp_path):
+    path = tmp_path / 'current/tasks'
+    path.mkdir(parents=True)
+    for kind in ('clean', 'injected'):
+        row = {'id': kind, 'output': {'kind': kind}, 'messages': [
+            {'role': 'assistant', 'content': '<think>' + 'long thought' * 10000 + '</think>',
+             'tool_calls': [{'function': 'read', 'args': {}}]},
+            {'role': 'tool', 'content': 'x' * 50000},
+            {'role': 'assistant', 'content': 'Stopped before checkout.'}]}
+        (path / (kind + '.json')).write_text(json.dumps(row))
+    ws = type('Workspace', (), {'learning_material': tmp_path})()
+    data = training_evidence(ws, 2000)
+    assert [r['id'] for r in data] == ['clean', 'injected']
+    assert all(r['events'][-1]['content'] == 'Stopped before checkout.' for r in data)
+    assert 'long thought' not in json.dumps(data)
+    assert len(json.dumps(data)) < 6000
+    assert len(json.loads(json.dumps(data))) == 2
+
+
+@pytest.mark.parametrize('mode,accept', [('improve', True), ('regress', False),
+    ('tie', False), ('review_reject', False), ('probe_regress', False)])
+def test_multi_role_cascade_and_independent_confirmation(tmp_path, mode, accept):
+    ctx, ids, calls, inputs = context(tmp_path, mode)
+    initial = (ctx.workspace.adapter / 'ADAPTER.md').read_text()
+    result = roles.run(ctx, ids)
+    assert result.status == 'done', result.extra
+    assert result.extra['accepted'] == accept
+    assert ((ctx.workspace.adapter / 'ADAPTER.md').read_text() != initial) == accept
+    assert len(inputs) == 3
+    assert [p['output']['kind'] for p in inputs[0][1]['training_evidence']].count('injected') == 2
+    assert len(inputs[-1][1]['candidate_outcomes']) == (0 if mode == 'review_reject' else 2 if mode == 'regress' else 4)
+    if mode == 'review_reject':
+        assert all(not changed for _, changed in calls)
+    if mode == 'improve':
+        assert result.extra['trials'][0]['probe']['passed']
+    assert (ctx.workspace.state / 'lessons.json').is_file()
+
+
+def test_analyzer_feedback_reaches_next_designer_and_repeats(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'tie', proposals=2, repeats=2)
+    result = roles.run(ctx, ids)
+    assert result.status == 'done'
+    designers = [p for role, p in inputs if 'ROLE: Designer.' in role]
+    assert len(designers) == 2 and designers[1]['lessons'][0]['next_hypothesis'] == 'one scoped change'
+    assert len(json.loads((ctx.workspace.output / 'parent-results.json').read_text())) == 8
+    assert not result.extra['accepted']
+
+
+def test_probe_cannot_overlap_selection_or_name_test(tmp_path):
+    ctx, ids, calls, _ = context(tmp_path)
+    ctx.params['robustness_task_ids'] = ['test-secret']
+    result = roles.run(ctx, ids)
+    assert result.status == 'failed' and not calls
+
+
+def test_failed_candidate_never_counted_as_secure(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path)
+    original = ctx.tools['run_agent']
+    def evaluate(task_ids, adapter):
+        if Path(adapter) != ctx.workspace.adapter:
+            return {'results': [{'id': tid, 'status': 'error'} for tid in task_ids]}
+        return original(task_ids, adapter)
+    ctx.tools['run_agent'] = evaluate
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and not result.extra['accepted']
+    assert 'failed episodes' in result.extra['trials'][0]['error']
+    assert len(inputs) == 3
+    assert inputs[-1][1]['candidate_outcomes'][0]['status'] == 'error'
+
+
+@pytest.mark.parametrize('fail_at', [1, 2])
+def test_analyzer_failure_preserves_last_complete_promotion(tmp_path, fail_at):
+    ctx, ids, calls, inputs = context(tmp_path, 'improve', proposals=2)
+    initial = (ctx.workspace.adapter / 'ADAPTER.md').read_text()
+    original = ctx.tools['llm']
+    analyses = 0
+
+    def flaky(messages, **kwargs):
+        nonlocal analyses
+        if 'ROLE: Analyzer.' in messages[0]['content']:
+            analyses += 1
+            if analyses == fail_at:
+                raise RuntimeError('transient Analyzer outage')
+        return original(messages, **kwargs)
+
+    ctx.tools['llm'] = flaky
+    result = roles.run(ctx, ids)
+    if fail_at == 1:
+        assert result.status == 'failed'
+        assert not result.extra['accepted']
+        assert not result.extra['trials'][0]['accepted']
+        assert (ctx.workspace.adapter / 'ADAPTER.md').read_text() == initial
+    else:
+        # A failed status would cause the Trainer to discard the valid first
+        # promotion, even if the files themselves had been restored correctly.
+        assert result.status == 'done'
+        assert result.extra['accepted']
+        assert 'transient Analyzer outage' in result.extra['interrupted_error']
+        assert result.extra['trials'][0]['promoted']
+        assert not result.extra['trials'][1]['accepted']
+        assert (ctx.workspace.adapter / 'ADAPTER.md').read_text() == 'evidence grounded tested defense'
+
+
+def test_required_critic_changes_block_evaluation_even_if_approved(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path)
+    original = ctx.tools['llm']
+
+    def contradictory_review(messages, **kwargs):
+        answer = original(messages, **kwargs)
+        if 'ROLE: Criticizer.' in messages[0]['content']:
+            data = json.loads(answer['content'])
+            data['approved'] = True
+            data['required_changes'] = ['Fix the unconditional refusal before evaluation.']
+            return {'content': json.dumps(data)}
+        return answer
+
+    ctx.tools['llm'] = contradictory_review
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and not result.extra['accepted']
+    assert all(not changed for _, changed in calls)
+    analysis = inputs[-1][1]
+    assert analysis['candidate_outcomes'] == []
+    assert analysis['candidate_files']['ADAPTER.md'] == 'evidence grounded tested defense'
+    assert analysis['parent_files']['ADAPTER.md'] != analysis['candidate_files']['ADAPTER.md']
+
+
+def test_promoted_parent_trajectories_reach_next_designer(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, proposals=2)
+    original = ctx.tools['run_agent']
+
+    def with_trajectory(task_ids, adapter):
+        result = original(task_ids, adapter)
+        for row in result['results']:
+            row['messages'] = [{'role': 'assistant', 'content': 'NEWLY_MEASURED_PARENT_TRACE'}]
+        return result
+
+    ctx.tools['run_agent'] = with_trajectory
+    result = roles.run(ctx, ids)
+    assert result.extra['trials'][0]['promoted']
+    designers = [payload for role, payload in inputs if 'ROLE: Designer.' in role]
+    assert 'NEWLY_MEASURED_PARENT_TRACE' not in json.dumps(designers[0]['training_evidence'])
+    assert 'NEWLY_MEASURED_PARENT_TRACE' in json.dumps(designers[1]['training_evidence'])
+    assert all(not row['output']['attack_success'] for row in designers[1]['training_evidence']
+               if row['output']['kind'] == 'injected')
+
+
+def test_train_log_audit_is_bounded_and_excludes_hidden_fields(tmp_path):
+    (tmp_path / 'trajectory.json').write_text(json.dumps([
+        {'role': 'assistant', 'content': 'Finished legitimate task.'}]))
+    audit = [{'tool': 'read', 'blocked': False, 'output_changed': True,
+              'requested_arguments': {'query': 'x' * 10000}, 'arguments': {'query': 'bounded'},
+              'hidden_environment': 'DO_NOT_INCLUDE_HIDDEN_STATE'} for _ in range(50)]
+    audit[-1] = {'tool': 'write', 'phase': 'pre', 'blocked': True, 'executed': False}
+    (tmp_path / 'audit.json').write_text(json.dumps(audit))
+    (tmp_path / 'llm-auditor-calls.jsonl').write_text(json.dumps({
+        'event': 'classification', 'status': 'ok', 'has_injected_instruction': False,
+        'reason': 'no_redirection_detected', 'attempt_count': 1,
+        'output_sha256': 'fixture-hash', 'raw_output': 'DO_NOT_INCLUDE_RAW_OUTPUT'}) + '\n')
+    (tmp_path / 'environment.json').write_text('DO_NOT_READ_ENVIRONMENT')
+    result = result_evidence([{'id': 'train-a', 'status': 'ok', 'log': str(tmp_path)}], chars=2000)[0]
+    assert result['audit']['hooks']['count'] == 50
+    assert result['audit']['hooks']['omitted_events'] == 38
+    assert result['audit']['hooks']['events'][-1]['executed'] is False
+    assert result['audit']['classifications']['events'][0]['has_injected_instruction'] is False
+    assert 'DO_NOT_' not in json.dumps(result)
+    assert len(json.dumps(result)) < 5000

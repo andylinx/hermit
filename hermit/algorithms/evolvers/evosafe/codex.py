@@ -8,21 +8,30 @@ import time
 from hermit.evolver.agent import parse_log, price_usage
 
 
-def propose(ctx, messages):
-    root = ctx.workspace.scratch / "codex-proposal"
-    root.mkdir()
-    schema = {"type": "object", "additionalProperties": False, "required": ["summary", "files"],
+def proposal_schema():
+    return {"type": "object", "additionalProperties": False, "required": ["summary", "files"],
               "properties": {"summary": {"type": "string"}, "files": {
                   "type": "object", "additionalProperties": False,
                   "required": ["ADAPTER.md", "defense.py", "BUNDLE.md"],
                   "properties": {name: {"type": "string"} for name in ("ADAPTER.md", "defense.py", "BUNDLE.md")}}}}
-    schema_path, answer = root / "schema.json", ctx.workspace.output / "codex-proposal.json"
+
+
+def propose(ctx, messages):
+    return call_role(ctx, messages, proposal_schema(), "proposal")
+
+
+def call_role(ctx, messages, schema, name):
+    if not name or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in name):
+        raise ValueError("invalid role artifact name")
+    root = ctx.workspace.scratch / ("codex-" + name)
+    root.mkdir()
+    schema_path, answer = root / "schema.json", ctx.workspace.output / ("codex-" + name + ".json")
     schema_path.write_text(json.dumps(schema))
     prompt = root / "prompt.txt"
-    prompt.write_text("Produce only the requested defense proposal from the supplied evidence. "
+    prompt.write_text("Perform only the requested defensive role from the supplied evidence. "
                       "Do not read other project files, invoke APIs, execute shell commands, edit files, "
                       "or perform any git operations. All required information is below.\n" + json.dumps(messages))
-    log = ctx.workspace.output / "codex-events.jsonl"
+    log = ctx.workspace.output / ("codex-events.jsonl" if name == "proposal" else "codex-" + name + "-events.jsonl")
     command = [ctx.params.get("codex_bin", "codex"), "exec", "--yolo", "--json", "--ephemeral",
                "--skip-git-repo-check", "-C", str(root), "--output-schema", str(schema_path),
                "--output-last-message", str(answer)]
@@ -58,5 +67,5 @@ def propose(ctx, messages):
     _, usage = parse_log(log, "codex", ctx.params.get("codex_model") or "codex")
     price_usage(usage, ctx.params)
     if reason or proc.returncode != 0 or not answer.is_file():
-        return None, usage, reason or f"Codex exited {proc.returncode}; inspect codex-events.jsonl"
+        return None, usage, reason or f"Codex exited {proc.returncode}; inspect {log.name}"
     return {"content": answer.read_text()}, usage, None

@@ -2,6 +2,12 @@ description: Propose a defense bundle, evaluate parent and candidate on fixed ca
 class: evolver.py:EvoSafeEvolver
 needs: []
 params:
+  search_mode: single
+  max_proposals: 2
+  cascade_sizes: [6, 12]
+  evaluation_repeats: 1
+  evidence_chars_per_case: 5000
+  robustness_task_ids: []
   proposer: llm
   codex_bin: codex
   codex_model: null

@@ -85,9 +85,14 @@ def make_victim(params: dict, base: Path, on_call=None):
             try:
                 completion = client.chat.completions.create(**request)
             except Exception as exc:
+                # A failed request may have consumed provider tokens even though
+                # no usage response arrived; exact episode cost is then unknown.
+                self.usage["calls"] += 1
+                self.usage["unknown_usage_calls"] += 1
                 if on_call is not None:
                     on_call({"status": "error", "type": type(exc).__name__,
                              "http_status": getattr(exc, "status_code", None),
+                             "usage": dict(self.usage),
                              "wall_s": time.monotonic() - started})
                 # SDK errors can include request bodies. Keep credentials and
                 # prompts out of exception reports forwarded to the learner.

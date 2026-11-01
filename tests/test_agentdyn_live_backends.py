@@ -56,6 +56,7 @@ def test_compatible_victim_tools_usage_and_error_redaction(tmp_path, monkeypatch
         victim.query("hi", SimpleNamespace(functions={}), {})
     assert "dummy-secret" not in str(error.value)
     assert events[0]["finish_reason"] == "stop" and events[1]["status"] == "error"
+    assert victim.usage["calls"] == 2 and victim.usage["unknown_usage_calls"] == 1
     assert "dummy-secret" not in json.dumps(events)
     victim.close()
 

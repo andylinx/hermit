@@ -6,6 +6,7 @@ import shutil
 from hermit.evolver.base import Evolver, StepResult
 from hermit.integrations.agentdyn import aggregate
 from hermit.algorithms.evolvers.evosafe.codex import propose as codex_propose
+from hermit.algorithms.evolvers.evosafe.evidence import training_evidence
 
 EDITABLE = ("ADAPTER.md", "defense.py", "BUNDLE.md")
 
@@ -31,6 +32,12 @@ class EvoSafeEvolver(Evolver):
             return StepResult("failed", "proposer must be llm or codex")
         if proposer == "llm" and "llm" not in ctx.tools:
             return StepResult("failed", "configure the run's llm tool for defense proposals")
+        search_mode = ctx.params.get("search_mode", "single")
+        if search_mode == "roles":
+            from hermit.algorithms.evolvers.evosafe.roles import run
+            return run(ctx, ids)
+        if search_mode != "single":
+            return StepResult("failed", "search_mode must be single or roles")
         usage = []
         report = {"step": getattr(ctx.progress, "step", None), "eval_task_ids": ids, "accepted": False}
         try:
@@ -39,10 +46,7 @@ class EvoSafeEvolver(Evolver):
             candidate = ws.scratch / "candidate"
             shutil.copytree(ws.adapter, candidate)
             files = {name: (ws.adapter / name).read_text() for name in EDITABLE}
-            evidence = []
-            for path in sorted((ws.learning_material / "current" / "tasks").glob("*.json"))[:8]:
-                row = json.loads(path.read_text())
-                evidence.append({k: row.get(k) for k in ("output", "judge", "messages")})
+            evidence = training_evidence(ws, int(ctx.params.get("evidence_chars_per_case", 5000)))
             history = ws.state / "evosafe.jsonl"
             prior = history.read_text()[-12000:] if history.exists() else ""
             messages = [
@@ -53,7 +57,7 @@ class EvoSafeEvolver(Evolver):
                  "ADAPTER.md, defense.py, BUNDLE.md to their complete new text.\n" +
                  (ws.adapter / "EVOLVER.md").read_text()},
                 {"role": "user", "content": json.dumps({"files": files, "parent_metrics": parent,
-                 "previous_trials": prior, "evidence": json.dumps(evidence)[:24000]})}]
+                 "previous_trials": prior, "evidence": evidence})}]
             if proposer == "codex":
                 response, usage, error = codex_propose(ctx, messages)
                 if error:

@@ -166,3 +166,64 @@ environment, tools and judges with a scripted model and an inert vector marker.
 The Trainer integration test uses deterministic task and proposer doubles.
 Trusted test fixtures run without sandbox isolation; these tests do not certify
 the production sandbox or model-backed defense effectiveness.
+
+## Expanded EvoSafe role search
+
+`nvidia-expanded.yaml` uses independent Codex Designer, Criticizer and Analyzer
+sessions, with a fixed Python evaluation cascade between review and analysis.
+The role prompts adapt `../EvoSafeHarness/domains/os-filesystem/domain_spec.md`
+sections 3–5: one evidence-based mechanism per candidate, independent utility and
+anti-overfit review, staged measurements, and persistent lessons. The Criticizer
+reviews defensive code; this integration does not generate attacks. The fixed-case
+validation confirmation is not the original adaptive/renamed-attack robustness probe.
+
+The cascade uses training cases, retaining their observable tool events for the
+Analyzer. Every case keeps its outcome and event sequence; per-event clipping replaces
+the old global string truncation. Prospective improvements are checked on disjoint
+validation groups. Final test results never go into role inputs or selection.
+Strict clean-utility protection and the original `clean utility - ASR` objective
+remain in place. Injected utility and secure task completion are reported separately.
+
+The optional structured SDK is `hermit.integrations.evosafe_hooks`: original-style
+contexts/results, public tool schemas, per-episode state, argument/result mutation,
+and recoverable `PermissionError` refusals. It is an explicit portable contract,
+not a fake DTAP import package. An optional operator-configured classifier uses only
+the same frozen victim, has no tools, and reports bounded classification usage.
+A post-hook cannot undo an already executed side effect.
+
+Prepare a fresh expanded dataset from one existing source collection:
+
+```bash
+python examples/agentdyn/prepare_expanded.py \
+  /path/to/AgentDyn/runs/google_gemini-2.5-flash \
+  examples/agentdyn/data/expanded-v2
+hermit check --config examples/agentdyn/nvidia-expanded.yaml --no-probe
+hermit train --config examples/agentdyn/nvidia-expanded.yaml
+hermit eval --config examples/agentdyn/nvidia-expanded.yaml --adapter none
+hermit eval --config examples/agentdyn/nvidia-expanded.yaml --adapter root
+hermit eval --config examples/agentdyn/nvidia-expanded.yaml --adapter final
+```
+
+The acceptance subset contains 54 episodes across Shopping, GitHub and DailyLife:
+18 per split, each with six clean episodes and twelve existing injected episodes.
+Splits are disjoint by `(suite, user_task_id)`. Selection uses a fixed seed and
+source-level checks, not model performance. See `AGENTDYN_DATA_AUDIT.md` for exclusions,
+the full eligible inventory, and the limits of the native initialization checks.
+The config freezes exact training and validation IDs, so update those lists when
+creating a different protocol. Use a fresh run name and tree directory after changing
+the template's fixed contract; don't reuse historical experiment trees.
+
+Compare completed runs with counts, errors and per-suite/per-goal breakdowns:
+
+```bash
+python examples/agentdyn/compare.py \
+  --tasks examples/agentdyn/data/expanded-v2/tasks.jsonl \
+  --split examples/agentdyn/data/expanded-v2/test.txt \
+  --run none=examples/agentdyn/runs/nemotron-agentdyn-expanded-v2/eval/none/results.jsonl \
+  --run final=examples/agentdyn/runs/nemotron-agentdyn-expanded-v2/eval/final/results.jsonl
+```
+
+This is broader integration acceptance, not the full official benchmark or a
+statistically conclusive improvement claim. Full access is explicitly configured
+for this local experiment; prompt instructions and event audits do not constitute
+filesystem isolation of the Codex roles.

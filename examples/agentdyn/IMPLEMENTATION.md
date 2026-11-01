@@ -1,5 +1,8 @@
 # 首版接入记录与待办（8e731a5，历史状态）
 
+2026-11-01 更新：三场景固定案例、多角色 EvoSafe 搜索、结构化 hook SDK 与同模型
+分类器的接入及验收见 [EXPANDED_ACCEPTANCE.md](EXPANDED_ACCEPTANCE.md)。
+
 2026-10-30 更新：已增加 NVIDIA OpenAI-compatible victim、api3.py 安全读取、
 Codex `--yolo` 提案后端和真实 smoke 实验。最新结果及新发现的上游评分问题见
 [NVIDIA_SMOKE_RESULTS.md](NVIDIA_SMOKE_RESULTS.md)。以下记录保留首版时的验证范围，
