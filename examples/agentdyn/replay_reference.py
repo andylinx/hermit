@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 from hermit.integrations.agentdyn import run as native_run
 from hermit.task import RunOutput
+from hermit.integrations.openai_victim import terminal_protocol_error
 
 
 def digest(value):
@@ -89,6 +90,12 @@ def run(task, adapter, *, params, base):
     if digest(task) != row['case_sha256']:
         raise ValueError('reference case mismatch; cannot reuse measurement')
     if row['status'] != 'ok':
+        raise ReferenceFailure(row['log'])
+    terminal = (row.get('messages') or [{}])[-1]
+    if terminal.get('role') != 'assistant' or terminal_protocol_error(
+            terminal.get('content'), bool(terminal.get('tool_calls'))):
+        # Preserve the historical snapshot, but never replay malformed output as
+        # a valid measurement under the current provider validation contract.
         raise ReferenceFailure(row['log'])
     extra = {**row['pipeline_extra'], 'reference_replay': {'snapshot_sha256': snapshot_hash,
              'source': snapshot['source'], 'original_tokens': row.get('tokens'), 'new_api_tokens': 0}}

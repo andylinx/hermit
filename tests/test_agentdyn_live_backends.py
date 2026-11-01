@@ -138,3 +138,41 @@ def test_check_respects_and_restores_disabled_sandbox(tmp_path, monkeypatch):
     settings_check.run_check(Config.load(path), probe=False, log=lambda *args: None)
     assert seen == [None]
     assert spec.SANDBOX_ENFORCE == "required"
+
+
+@pytest.mark.parametrize('content,calls,expected', [
+    ('Done.', False, None),
+    ('<think>private reasoning</think>Done.', False, None),
+    ('<think>unfinished', False, 'unfinished_reasoning'),
+    ('<think>complete</think>', False, 'missing_terminal_answer'),
+    ('<TOOLCALL>{invalid}</TOOLCALL>', False, 'unparsed_textual_tool_call'),
+    (None, False, 'missing_terminal_answer'),
+    (None, True, None),
+    ([{'type': 'text', 'text': 'Done.'}], False, None),
+])
+def test_terminal_protocol_validation(content, calls, expected):
+    from hermit.integrations.openai_victim import terminal_protocol_error
+    assert terminal_protocol_error(content, calls) == expected
+
+
+def test_protocol_failure_retains_usage_and_records_one_call(tmp_path, monkeypatch):
+    openai = pytest.importorskip('openai')
+    pytest.importorskip('agentdojo')
+    from openai.types.chat import ChatCompletion
+    from hermit.integrations.openai_victim import make_victim
+    monkeypatch.setenv('VICTIM_TEST_KEY', 'dummy')
+    response = ChatCompletion.model_validate({'id': 'test', 'created': 0, 'object': 'chat.completion',
+        'model': 'test', 'choices': [{'index': 0, 'finish_reason': 'stop',
+            'message': {'role': 'assistant', 'content': '<TOOLCALL>invalid</TOOLCALL>'}}],
+        'usage': {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15}})
+    monkeypatch.setattr(openai, 'OpenAI', lambda **kwargs: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: response)), close=lambda: None))
+    events = []
+    victim = make_victim({'model': 'test', 'base_url': 'https://example.invalid',
+                         'api_key_env': 'VICTIM_TEST_KEY'}, tmp_path, events.append)
+    with pytest.raises(RuntimeError, match='unparsed_textual_tool_call'):
+        victim.query('task', SimpleNamespace(functions={}), {})
+    assert len(events) == 1
+    assert events[0]['status'] == 'error'
+    assert victim.usage['calls'] == 1
+    assert victim.usage['output_tokens'] == 5

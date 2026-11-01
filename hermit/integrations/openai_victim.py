@@ -7,8 +7,27 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 from pathlib import Path
 import time
+
+
+def terminal_protocol_error(content, has_tool_calls=False):
+    """Recognize non-terminal protocol output without executing textual calls."""
+    if has_tool_calls:
+        return None
+    if isinstance(content, list):
+        content = '\n'.join(part.get('text', part.get('content', '')) for part in content
+                            if isinstance(part, dict) and isinstance(part.get('text', part.get('content')), str))
+    text = content if isinstance(content, str) else ''
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    if text.startswith('<think>'):
+        return 'unfinished_reasoning'
+    if not text:
+        return 'missing_terminal_answer'
+    if text.startswith('<TOOLCALL>'):
+        return 'unparsed_textual_tool_call'
+    return None
 
 
 def script_settings(path: Path) -> dict:
@@ -103,12 +122,17 @@ def make_victim(params: dict, base: Path, on_call=None):
             else:
                 self.usage["input_tokens"] += completion.usage.prompt_tokens
                 self.usage["output_tokens"] += completion.usage.completion_tokens
+            message = completion.choices[0].message if completion.choices else None
+            protocol_error = terminal_protocol_error(message.content, bool(message.tool_calls)) if message else 'empty_response'
             if on_call is not None:
-                on_call({"status": "ok", "call": self.usage["calls"],
+                on_call({"status": "error" if protocol_error else "ok", "call": self.usage["calls"],
+                         "protocol_error": protocol_error,
                          "wall_s": time.monotonic() - started, "usage": dict(self.usage),
                          "finish_reason": completion.choices[0].finish_reason if completion.choices else None})
             if not completion.choices or completion.choices[0].finish_reason in {"length", "content_filter"}:
                 raise RuntimeError("victim response was empty, truncated or filtered")
+            if protocol_error:
+                raise RuntimeError(f"victim terminal protocol error: {protocol_error}")
             message = completion.choices[0].message
             output = _openai_to_assistant_message(message)
             # Upstream silently drops malformed tool calls. Reject those episodes

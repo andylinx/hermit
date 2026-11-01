@@ -265,3 +265,11 @@ the last paired diagnostic seeds `workspace/state/previous_candidate_evidence.js
 Only IDs in the current training selection are accepted by the seed check. Seed
 provenance is recorded separately in the run directory. Starting without these
 optional seed files is valid but does not reproduce the exact recorded search.
+
+The latest debug run found malformed textual tool calls and unfinished reasoning
+previously counted as completed responses. These now fail protocol validation;
+`audit_terminal_protocol.py` produces a non-mutating audit of historical task
+records. Reference replay applies the same guard. Provider safety-review refusals
+now stop role search without automatic retries. See `EXPANDED_ACCEPTANCE.md` for
+actual thirty-case results and the remaining acceptance gaps; the repaired run
+did not produce an evaluated, promoted defense.

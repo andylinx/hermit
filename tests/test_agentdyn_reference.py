@@ -1,5 +1,6 @@
 """Frozen reference reuse never hides failures or substitutes for changed defenses."""
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -25,7 +26,8 @@ def setup_reference(tmp_path):
         row = {'id': name, 'input': {'id': name}, 'status': status,
                'output': {'utility': True, 'kind': 'clean', 'attack_success': None} if status == 'ok' else None,
                'pipeline_extra': {'adapter_sha256': replay.adapter_digest(root)},
-               'trajectory': 'trajectories/' + name, 'tokens': 123, 'messages': []}
+               'trajectory': 'trajectories/' + name, 'tokens': 123,
+               'messages': [{'role': 'assistant', 'content': 'Done.'}]}
         (current / 'tasks' / (name + '.json')).write_text(json.dumps(row))
     snapshot = tmp_path / 'reference.json'
     info = replay.freeze(source, snapshot)
@@ -59,3 +61,16 @@ def test_reference_checks_provider_and_case_and_bypasses_changed_defense(tmp_pat
     (root / 'ADAPTER.md').write_text('changed defense')
     assert replay.run({'id': 'good'}, root, params=params, base=tmp_path).output['fresh']
     assert calls == ['not-in-training-reference', 'good']
+
+
+def test_reference_rejects_old_unparsed_terminal_without_rewriting_snapshot(tmp_path):
+    root, params = setup_reference(tmp_path)
+    path = Path(params['reference_snapshot'])
+    snapshot = json.loads(path.read_text())
+    row = next(r for r in snapshot['rows'] if r['id'] == 'good')
+    row['messages'] = [{'role': 'assistant', 'content': '<TOOLCALL>invalid</TOOLCALL>'}]
+    path.write_text(json.dumps(snapshot))
+    before = path.read_bytes()
+    with pytest.raises(replay.ReferenceFailure):
+        replay.run({'id': 'good'}, root, params=params, base=tmp_path)
+    assert path.read_bytes() == before

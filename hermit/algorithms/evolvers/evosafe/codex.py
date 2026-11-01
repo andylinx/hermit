@@ -20,6 +20,21 @@ def propose(ctx, messages):
     return call_role(ctx, messages, proposal_schema(), "proposal")
 
 
+def safety_refused(log):
+    for line in log.read_text().splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get('type') not in ('error', 'turn.failed'):
+            continue
+        error = event.get('error') or {}
+        text = str(event.get('message') or (error.get('message') if isinstance(error, dict) else error)).lower()
+        if 'flagged for possible cybersecurity risk' in text or 'content_policy_violation' in text:
+            return True
+    return False
+
+
 def call_role(ctx, messages, schema, name):
     if not name or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in name):
         raise ValueError("invalid role artifact name")
@@ -66,6 +81,8 @@ def call_role(ctx, messages, schema, name):
                     proc.wait()
     _, usage = parse_log(log, "codex", ctx.params.get("codex_model") or "codex")
     price_usage(usage, ctx.params)
+    if proc.returncode != 0 and safety_refused(log):
+        return None, usage, 'SAFETY_REVIEW_REFUSAL: provider security review rejected the role request'
     if reason or proc.returncode != 0 or not answer.is_file():
         return None, usage, reason or f"Codex exited {proc.returncode}; inspect {log.name}"
     return {"content": answer.read_text()}, usage, None

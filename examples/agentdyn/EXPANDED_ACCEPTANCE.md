@@ -416,3 +416,76 @@ cost are preserved; replayed records must not be counted as new model executions
 The repaired run uses the same victim settings and all 30 training cases for each
 reviewed candidate, followed by separate validation and test. It carries the corrected
 paired diagnostics, prompt/hook confound and native-type evidence into the roles.
+
+### Final debugging status: protocol accounting and role-provider refusal
+
+The repaired thirty-case run has finished, **without a measured candidate or a
+promotion**. Designer was rejected by provider cybersecurity review in trials 1
+and 3; trial 2 produced a proposal but Criticizer was rejected. The old generic
+failure handler continued to later trials. This is now fixed: a provider safety
+refusal terminates search immediately, archives available candidate files and
+records the reason. No access-tier change or attempt to circumvent review was
+made. An input-minimization experiment was considered but removed before use;
+there was no subsequent role request. Successful Analyzer responses from this
+run are diagnostic evidence, not evidence that a defense improved.
+
+A further **confirmed provider-protocol accounting bug** was found in the initial
+TRAIN reference. `dailylife-user_task_9-clean` ended in textual `<TOOLCALL>` output
+without an API tool call; `shopping-user_task_11-injection_task_6-88485e48` ended
+in unfinished reasoning. Neither constitutes a completed final response. The
+compatible victim now rejects these recognized protocol failures, including empty
+visible answers, while retaining token usage and a single API audit record.
+Textual tool calls are never executed or repaired. Valid structured calls remain
+supported. This fixes measurement validity, not the model's task competence.
+
+`runs/thirty-terminal-audit.json` is a separate offline audit of the 30 original
+TRAIN rows: one original execution error plus **two additional protocol errors**.
+Original statuses, native verdicts and source logs are unchanged. Replayed
+reference rows are now subject to the same terminal check, so cached malformed
+outputs cannot masquerade as valid results in a future run. Under that corrected
+contract, parent clean utility is bounded by [5/10, 6/10], ASR by [8/20, 10/20],
+and objective by [0, 0.20]. These are missing-outcome bounds, not confidence
+intervals. Historical scores above use the earlier validity contract and must
+not be compared directly against future guarded runs as if the protocols matched.
+Reproduce the audit with:
+
+```bash
+python examples/agentdyn/audit_terminal_protocol.py \
+  examples/agentdyn/runs/nemotron-agentdyn-thirty-v1/learning_material/current/tasks \
+  /tmp/thirty-terminal-audit.json
+```
+
+The recommended reasoning-ON decoding diagnostic has also finished: 17 successful
+clean tasks across 30 attempts (29 completed, one error), with repeats 5/10, 5/10
+and 7/10. Recorded cost is 1,886,112 tokens and elapsed time 2,326.93 seconds.
+See `runs/recommended-clean-v1/summary.json`. This repeats ten TRAIN tasks; it is
+not thirty independent tasks, and the baseline was measured only once. Neither
+this diagnostic nor the OFF experiment establishes a reliable improvement or
+changes the frozen search settings. Both used the earlier protocol validator.
+
+After search stopped, the held-out root baseline was inspected: 30 attempts,
+two execution errors; completed-only clean utility 6/9, ASR 8/19, injected utility
+6/19 and secure task completion 5/19. The full objective remains unknown. See
+`runs/thirty-root-test-metrics.json`. This is the **root baseline**, not an optimized
+adapter; it used the earlier validator and was not fed back into role search.
+There is no new validated optimized-vs-root test comparison to report.
+
+The evidence does not support a ceiling-effect explanation: baseline normal-task
+completion is low and successful attacks remain common. The immediate priorities
+are execution reliability, exact paired evidence, separation of prompt changes
+from hook changes, and utility-preserving defenses. Thirty episodes provide a
+useful debugging batch, but each split contains only ten independent user-task
+groups. Larger claims require more task groups and repeated paired measurements;
+adding correlated variants alone does not establish statistical significance.
+
+Remaining acceptance work is explicit: an independently reviewed candidate,
+complete paired TRAIN measurement under the corrected validator, separate
+validation, and a final held-out comparison. Provider review prevented that
+candidate path in this run. No performance acceptance claim is made. All changes
+are local; no push was performed.
+
+Validation of the final fixes: the integration/search/training suite passed 115
+tests; the subsequent additional historical-reference protocol regression passed
+with all three reference tests. A credential scan of 4,506 local source/result
+files found no occurrence of the configured API key. No new victim or role calls
+were made for terminal auditing or these unit tests.

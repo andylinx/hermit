@@ -477,3 +477,30 @@ def test_analyzer_counts_pair_prefix_and_preserve_failed_episode():
     empty = roles.measured_comparison(parent, [])
     assert empty['parent_on_candidate_cases']['episodes'] == 0
     assert empty['candidate']['objective'] is None
+
+
+def test_provider_safety_refusal_stops_without_retry(tmp_path, monkeypatch):
+    ctx, ids, calls, inputs = context(tmp_path, proposals=3)
+    ctx.params['proposer'] = 'codex'
+    attempted = []
+    def refuse(*args):
+        attempted.append(True)
+        return None, [], 'SAFETY_REVIEW_REFUSAL: provider security review rejected the role request'
+    monkeypatch.setattr(roles, 'call_role', refuse)
+    result = roles.run(ctx, ids)
+    assert len(attempted) == 1
+    assert not any(changed for _, changed in calls)
+    report = json.loads((ctx.workspace.output / 'selection.json').read_text())
+    assert 'RoleSafetyRefusal' in report['error']
+    assert report['stop_reason'] == 'provider safety refusal; no automatic retry'
+    assert len(report['trials']) == 1
+
+
+def test_safety_refusal_detector_only_uses_provider_errors(tmp_path):
+    from hermit.algorithms.evolvers.evosafe.codex import safety_refused
+    log = tmp_path / 'events.jsonl'
+    phrase = 'flagged for possible cybersecurity risk'
+    log.write_text(json.dumps({'type': 'agent_message', 'message': phrase}))
+    assert not safety_refused(log)
+    log.write_text(json.dumps({'type': 'turn.failed', 'error': {'message': phrase}}))
+    assert safety_refused(log)
