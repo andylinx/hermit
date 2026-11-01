@@ -239,3 +239,41 @@ def test_train_log_audit_is_bounded_and_excludes_hidden_fields(tmp_path):
     assert result['audit']['classifications']['events'][0]['has_injected_instruction'] is False
     assert 'DO_NOT_' not in json.dumps(result)
     assert len(json.dumps(result)) < 5000
+
+
+def test_mechanism_schedule_reaches_roles_and_frozen_plan(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'tie', proposals=3)
+    schedule = ['semantic_output_provenance', 'task_completion_scaffolding']
+    ctx.params['mechanism_schedule'] = schedule
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and not result.extra['accepted']
+    designers = [payload for role, payload in inputs if 'ROLE: Designer.' in role]
+    critics = [payload for role, payload in inputs if 'ROLE: Criticizer.' in role]
+    expected = [schedule[0], schedule[1], schedule[0]]
+    assert [p['mechanism_plan']['family'] for p in designers] == expected
+    assert [p['mechanism_plan']['family'] for p in critics] == expected
+    assert all(0 < len(p['mechanism_plan']['brief']) < 2000 for p in designers)
+    plan = json.loads((ctx.workspace.output / 'search-plan.json').read_text())
+    assert plan['mechanism_schedule'] == schedule
+    assert [p['mechanism_family'] for p in plan['trials']] == expected
+    assert result.extra['protocol']['mechanism_schedule'] == schedule
+    assert result.extra['protocol']['objective'] == 'clean_utility - asr'
+    assert [p['mechanism_family'] for p in result.extra['trials']] == expected
+
+
+def test_default_search_has_no_forced_mechanism(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path)
+    result = roles.run(ctx, ids)
+    assert result.extra['accepted']
+    assert result.extra['protocol']['mechanism_schedule'] == []
+    designer = next(payload for role, payload in inputs if 'ROLE: Designer.' in role)
+    assert designer['mechanism_plan'] is None
+
+
+@pytest.mark.parametrize('schedule', ['semantic_output_provenance', ['unsupported'], [None]])
+def test_invalid_mechanism_schedule_rejected_before_model_or_evaluation(tmp_path, schedule):
+    ctx, ids, calls, inputs = context(tmp_path)
+    ctx.params['mechanism_schedule'] = schedule
+    result = roles.run(ctx, ids)
+    assert result.status == 'failed' and 'mechanism_schedule' in result.extra['error']
+    assert not calls and not inputs

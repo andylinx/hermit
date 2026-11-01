@@ -29,3 +29,8 @@ and a 45-second request timeout. It uses the same Nemotron victim model, has no 
 and cannot authorize actions. These limits apply only when the service is configured;
 other configurations may expose None. Unknown is not an attack verdict. Any reliance
 on the service must preserve normal-task behavior and account for its finite budget.
+
+Runtime lifecycle guarantee: each episode invokes build() once and receives a fresh
+Defense instance, which is never reused or interleaved with another episode. Its
+trace_id is stable across that episode. Instance state is therefore per-episode;
+additional trace-key partitioning is optional, not required for current correctness.

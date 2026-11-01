@@ -227,3 +227,13 @@ This is broader integration acceptance, not the full official benchmark or a
 statistically conclusive improvement claim. Full access is explicitly configured
 for this local experiment; prompt instructions and event audits do not constitute
 filesystem isolation of the Codex roles.
+
+The follow-up `nvidia-expanded-diverse.yaml` keeps the same frozen victim/cases and
+acceptance metrics, but schedules distinct mechanism families after the first search
+repeatedly proposed brittle action-list guards. `mechanism_schedule: []` retains
+unrestricted Designer mechanism choice. Independent review approves a candidate for
+empirical evaluation, not as a proof of complete security coverage. See
+`EXPANDED_ACCEPTANCE.md` for all rejected trials and the separate benign diagnostic.
+For the recorded follow-up, the preceding run's `workspace/state/lessons.json` was
+copied into the fresh run's `workspace/state/lessons.json` before `hermit train`;
+only training-side lessons were carried over, never test results.

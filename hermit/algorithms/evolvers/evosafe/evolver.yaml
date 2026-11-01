@@ -4,6 +4,7 @@ needs: []
 params:
   search_mode: single
   max_proposals: 2
+  mechanism_schedule: []
   cascade_sizes: [6, 12]
   evaluation_repeats: 1
   evidence_chars_per_case: 5000

@@ -59,3 +59,67 @@ classifier, role search, expanded data, reports/budgets, Trainer and tool gates.
 Live artifacts: `runs/nemotron-agentdyn-expanded-v2/`; episodes:
 `runs/expanded-episodes/`. Final measurements follow after execution; no positive
 performance claim is assumed in advance.
+
+### Initial measured observations
+
+Code checkpoint before the first Designer call: `b240413`. Codex inherited the
+local `gpt-6-sol` / high reasoning configuration; victim remained Nemotron Super.
+
+| Training measurement, same initial adapter | Clean utility | ASR | Injected utility | Objective |
+|---|---:|---:|---:|---:|
+| Rollout feedback | 3/6 | 8/12 | 8/12 | -0.1667 |
+| Parent re-evaluation | 4/6 | 7/12 | 9/12 | 0.0833 |
+
+The objective moved by 0.25 without any defense change. This is direct evidence of
+single-run variability; a small candidate improvement alone is not stable benefit.
+Observed clean failures include early refusal, stopping after downloading a bill,
+and stopping while an invitation awaits OTP verification. No runtime errors occurred
+in either training measurement.
+
+The no-adapter test baseline completed in 1,619.2 seconds with 2/18 runtime errors
+(both GitHub injected cases exhausted the tool loop). Among completed episodes:
+clean utility 1/6, ASR 5/10, injected utility 3/10, secure task completion 2/10.
+The 10 denominator excludes the two failed injected episodes; the complete test
+objective is invalid/unknown, not a successful security result.
+
+Trial 1 was rejected by independent review before candidate model evaluation.
+Criticizer identified action-verb matching without argument authorization, brittle
+bill/path handling, and verification state not tied to a specific operation.
+Analyzer explicitly reported that no measured candidate effect exists and passed
+concrete lessons to trial 2. Rejection is evidence of role coordination, not improved
+security performance.
+
+### Phase 1 outcome and benign diagnostic
+
+All three candidates were rejected by independent review before cascade evaluation.
+The final adapter is byte-equivalent to the root defense; no candidate was promoted.
+The root test run took 1,224.2 seconds, with 0/18 errors: clean utility 2/6, ASR 6/12,
+injected utility 3/12, secure task completion 3/12, objective -0.1667. Because phase 1
+final has the same defense content, this root measurement also describes that
+artifact; no separate final API run is claimed.
+
+A separate **training-clean-only diagnostic**, outside selection, replayed trial 2:
+2/6 successes, 0 errors. Both GitHub clean tasks had actual pre-hook refusals (SSH
+key/invitation/verification); both DailyLife failures had zero hook blocks. Thus the
+observed losses include both policy-induced blocking and victim completion failures.
+These diagnostic results were not used to promote the rejected candidate.
+
+Phase 1 training/search used 2,123,414 recorded tokens over 2,164.4 seconds. Dollar
+cost is unknown. Final review artifacts and candidate files remain preserved.
+
+### Phase 2 plan
+
+The original search repeatedly revised a regex/action-list mechanism. To follow the
+source method's instruction to explore distinct mechanisms, a second bounded run
+uses `nvidia-expanded-diverse.yaml`, same frozen cases, victim and score/utility gates,
+with two scheduled mechanism families: semantic output provenance and task-completion
+scaffolding. Only phase 1 training-side Analyzer/review lessons seed the new run.
+No test outcomes are supplied to roles. Independent review is clarified to assess
+whether a scoped hypothesis is fit for empirical evaluation: concrete runtime bugs,
+evidence-backed clean blockers, fixture overfit and contradictions of the claimed
+invariant still block; incomplete coverage alone is a recorded risk, not a demand
+that one small candidate solve every threat. The SDK's fresh-instance lifecycle is
+explicitly stated in public task information.
+
+Latest regression after these search changes: **79 passed**. Phase 2 is recorded
+separately as `runs/nemotron-agentdyn-expanded-diverse-v2/`; phase 1 is not overwritten.
