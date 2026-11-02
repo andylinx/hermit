@@ -8,12 +8,18 @@ params:
   cascade_sizes: [6, 12]
   evaluation_repeats: 1
   reuse_rollout_parent: true
+  parent_error_policy: reject   # reject | conservative_bounds (failed parent runs get their best possible verdict)
+  candidate_error_policy: reject   # reject | worst_case_bounds (failed candidate runs get their worst possible verdict)
+  role_retries: 0             # extra attempts for a failed codex/claude role call (never for refusals)
   evidence_chars_per_case: 5000
   robustness_task_ids: []
-  proposer: llm
+  proposer: llm               # llm | codex | claude (Claude Code CLI, no tools)
   codex_bin: codex
   codex_model: null
   codex_timeout_s: 600
+  claude_bin: claude
+  claude_model: null
+  claude_timeout_s: 1200
   eval_task_ids: []
   min_clean_utility: 0.0
   max_clean_drop: 0.0

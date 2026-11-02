@@ -188,7 +188,7 @@ Recording a trajectory during training alone does not make it part of the deploy
 ## Available in this version
 
 Version 0.1.0 includes the `prompt-only`, `lean-collab`, `mwm`, `harness2-codex` and `continual-harness` templates and
-the `codex`, `claude`, `gepa`, `skillopt`, `mwm`, `harness2_upstream` and `continual_harness` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
+the `codex`, `claude`, `gepa`, `skillopt`, `mwm`, `harness2_upstream`, `continual_harness` and `evosafe` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
 the Lean template can be deployed, but its complete training pipeline has not been migrated.
 
 For detailed contracts, continue to [Adapter](adapter.md), [Evolver](evolver.md), [Trainer](trainer.md), or

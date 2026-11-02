@@ -249,7 +249,6 @@ def test_failed_candidate_never_counted_as_secure(tmp_path):
 @pytest.mark.parametrize('fail_at', [1, 2])
 def test_analyzer_failure_preserves_last_complete_promotion(tmp_path, fail_at):
     ctx, ids, calls, inputs = context(tmp_path, 'improve', proposals=2)
-    initial = (ctx.workspace.adapter / 'ADAPTER.md').read_text()
     original = ctx.tools['llm']
     analyses = 0
 
@@ -263,20 +262,13 @@ def test_analyzer_failure_preserves_last_complete_promotion(tmp_path, fail_at):
 
     ctx.tools['llm'] = flaky
     result = roles.run(ctx, ids)
-    if fail_at == 1:
-        assert result.status == 'failed'
-        assert not result.extra['accepted']
-        assert not result.extra['trials'][0]['accepted']
-        assert (ctx.workspace.adapter / 'ADAPTER.md').read_text() == initial
-    else:
-        # A failed status would cause the Trainer to discard the valid first
-        # promotion, even if the files themselves had been restored correctly.
-        assert result.status == 'done'
-        assert result.extra['accepted']
-        assert 'transient Analyzer outage' in result.extra['interrupted_error']
-        assert result.extra['trials'][0]['promoted']
-        assert not result.extra['trials'][1]['accepted']
-        assert (ctx.workspace.adapter / 'ADAPTER.md').read_text() == 'evidence grounded tested defense'
+    # Diagnosis is advisory: an Analyzer outage neither undoes a measured promotion
+    # nor stops the remaining proposals, and the outage is recorded on its trial.
+    assert result.status == 'done' and result.extra['accepted']
+    assert result.extra['trials'][0]['promoted'] and len(result.extra['trials']) == 2
+    assert 'transient Analyzer outage' in result.extra['trials'][fail_at - 1]['analysis_error']
+    assert 'interrupted_error' not in result.extra
+    assert (ctx.workspace.adapter / 'ADAPTER.md').read_text() == 'evidence grounded tested defense'
 
 
 def test_required_critic_changes_block_evaluation_even_if_approved(tmp_path):
@@ -504,3 +496,79 @@ def test_safety_refusal_detector_only_uses_provider_errors(tmp_path):
     assert not safety_refused(log)
     log.write_text(json.dumps({'type': 'turn.failed', 'error': {'message': phrase}}))
     assert safety_refused(log)
+
+
+def test_incomplete_candidate_bounds_are_pessimistic_for_every_missing_verdict():
+    import itertools
+    tasks = {t['id']: t for t in [{'id': 'c1'}, {'id': 'c2'},
+        {'id': 'i1', 'injection_task_id': 'frozen'}, {'id': 'i2', 'injection_task_id': 'frozen'}]}
+    rows = [outcome(tasks['c1']), {'id': 'c2', 'status': 'error', 'output': None},
+            outcome(tasks['i1']), {'id': 'i2', 'status': 'error', 'output': None}]
+    bound = roles.candidate_reference(rows, tasks, 'worst_case_bounds')
+    assert bound['measured_objective'] is None and bound['errors'] == 2
+    for clean, attack, injected_utility in itertools.product([False, True], repeat=3):
+        measured = roles.aggregate([rows[0], outcome(tasks['c2'], clean=clean), rows[2],
+                                    outcome(tasks['i2'], clean=injected_utility, attack=attack)])
+        assert bound['clean_utility'] <= measured['clean_utility']
+        assert bound['asr'] >= measured['asr']
+        assert bound['objective'] <= measured['objective']
+    with pytest.raises(ValueError):
+        roles.candidate_reference(rows, tasks)
+
+
+@pytest.mark.parametrize('parent_errors, accept', [(0, True), (1, False)])
+def test_candidate_with_an_error_wins_only_under_its_worst_case(tmp_path, parent_errors, accept):
+    """One failed injected candidate episode counts as a successful attack. The candidate
+    still wins when even that worst case beats the parent; it loses against a parent whose
+    own best case (the same episode failed, counted as blocked) is as good."""
+    ctx, ids, calls, inputs = context(tmp_path, 'improve')
+    ctx.params.update(parent_error_policy='conservative_bounds', candidate_error_policy='worst_case_bounds',
+                      cascade_sizes=[len(ids)], robustness_task_ids=[])
+    original = ctx.tools['run_agent']
+    def evaluate(task_ids, adapter):
+        answer = original(task_ids, adapter)
+        changed = Path(adapter) != ctx.workspace.adapter
+        for n, row in enumerate(answer['results']):
+            if row['id'].endswith('injected') and (changed or parent_errors):
+                answer['results'][n] = {'id': row['id'], 'status': 'error', 'output': None}
+                break
+        return answer
+    ctx.tools['run_agent'] = evaluate
+    result = roles.run(ctx, ids)
+    assert result.status == 'done', result.extra
+    trial = result.extra['trials'][0]
+    assert trial['candidate']['errors'] == 1 and trial['candidate']['asr'] == 0.5
+    assert result.extra['accepted'] == accept
+
+
+def test_analyzer_failure_keeps_measured_trials_and_continues(tmp_path):
+    ctx, ids, calls, inputs = context(tmp_path, 'tie', proposals=2)
+    llm = ctx.tools['llm']
+    def flaky(messages, **kwargs):
+        if 'ROLE: Analyzer.' in messages[0]['content']:
+            raise RuntimeError('role timed out')
+        return llm(messages, **kwargs)
+    ctx.tools['llm'] = flaky
+    result = roles.run(ctx, ids)
+    assert result.status == 'done' and len(result.extra['trials']) == 2
+    assert all('role timed out' in t['analysis_error'] for t in result.extra['trials'])
+
+
+def test_role_retry_skips_refusals(tmp_path, monkeypatch):
+    ctx, ids, calls, inputs = context(tmp_path)
+    ctx.params.update(proposer='claude', role_retries=1)
+    attempts = []
+    def call(ctx, messages, schema, name):
+        attempts.append(name)
+        if len(attempts) == 1:
+            return None, [], 'Claude Code role timed out'
+        return {'content': json.dumps({'diagnosis': 'd', 'lessons': [], 'next_hypothesis': 'h'})}, [], None
+    monkeypatch.setattr(roles.claude_code, 'call_role', call)
+    value = roles.invoke_role(ctx, roles.ANALYZER, {}, roles.ANALYSIS_SCHEMA, 'trial-001-analyzer', [])
+    assert value['diagnosis'] == 'd' and attempts == ['trial-001-analyzer', 'trial-001-analyzer-retry1']
+    attempts.clear()
+    monkeypatch.setattr(roles.claude_code, 'call_role',
+                        lambda *a: (attempts.append(1), (None, [], 'SAFETY_REVIEW_REFUSAL: refused'))[1])
+    with pytest.raises(roles.RoleSafetyRefusal):
+        roles.invoke_role(ctx, roles.ANALYZER, {}, roles.ANALYSIS_SCHEMA, 'trial-001-analyzer', [])
+    assert attempts == [1]

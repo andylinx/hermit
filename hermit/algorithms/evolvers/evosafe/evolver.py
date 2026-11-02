@@ -28,8 +28,8 @@ class EvoSafeEvolver(Evolver):
         if not ids or len(set(ids)) != len(ids):
             return StepResult("failed", "provide unique fixed eval_task_ids or a validation split")
         proposer = ctx.params.get("proposer", "llm")
-        if proposer not in {"llm", "codex"}:
-            return StepResult("failed", "proposer must be llm or codex")
+        if proposer not in {"llm", "codex", "claude"}:
+            return StepResult("failed", "proposer must be llm, codex or claude")
         if proposer == "llm" and "llm" not in ctx.tools:
             return StepResult("failed", "configure the run's llm tool for defense proposals")
         search_mode = ctx.params.get("search_mode", "single")
@@ -58,8 +58,11 @@ class EvoSafeEvolver(Evolver):
                  (ws.adapter / "EVOLVER.md").read_text()},
                 {"role": "user", "content": json.dumps({"files": files, "parent_metrics": parent,
                  "previous_trials": prior, "evidence": evidence})}]
-            if proposer == "codex":
-                response, usage, error = codex_propose(ctx, messages)
+            if proposer in ("codex", "claude"):
+                from hermit.algorithms.evolvers.evosafe.claude_code import call_role as claude_call
+                from hermit.algorithms.evolvers.evosafe.codex import proposal_schema
+                response, usage, error = (codex_propose(ctx, messages) if proposer == "codex"
+                                          else claude_call(ctx, messages, proposal_schema(), "proposal"))
                 if error:
                     raise RuntimeError(error)
             else:

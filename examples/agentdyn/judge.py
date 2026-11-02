@@ -1,3 +1,3 @@
-from hermit.integrations.agentdyn import score
+from hermit.integrations.agentdyn import score, summary
 
-__all__ = ["score"]
+__all__ = ["score", "summary"]
