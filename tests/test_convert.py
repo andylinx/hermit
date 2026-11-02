@@ -13,7 +13,7 @@ from hermit.plugins import Unsupported, build
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "docs" / "_examples" / "file_adapter"        # a short context, a skill, a role and a tool
-LEAN = ROOT / "hermit" / "algorithms" / "templates" / "lean_collab"  # a context of about 6,000 characters
+LEAN = ROOT / "hermit" / "adapter" / "templates" / "lean_collab"  # a context of about 6,000 characters
 
 
 def variant(tmp_path, *, roles=True, context=True):
@@ -21,11 +21,13 @@ def variant(tmp_path, *, roles=True, context=True):
     a = tmp_path / "adapter"
     shutil.copytree(EXAMPLE, a)
     if not roles:
-        manifest = yaml.safe_load((a / "adapter.yaml").read_text())
-        del manifest["exports"]["agents"]
-        manifest["structure"]["learnable"] = [item for item in manifest["structure"]["learnable"]
-                                              if not item["path"].startswith("agents/")]
-        (a / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        exports = yaml.safe_load((a / "exports.yaml").read_text())
+        del exports["agents"]
+        (a / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
+        meta = yaml.safe_load((a / ".hermit" / "adapter.yaml").read_text())
+        meta["structure"]["learnable"] = [item for item in meta["structure"]["learnable"]
+                                          if not str(item if isinstance(item, str) else item["path"]).startswith("agents/")]
+        (a / ".hermit" / "adapter.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))
         shutil.rmtree(a / "agents")
     if not context:
         (a / "ADAPTER.md").write_text("")
@@ -48,7 +50,7 @@ def test_claude_code_carries_every_part(tmp_path):
     assert server["command"] == "hermit"
     assert server["args"] == ["serve", "${CLAUDE_PLUGIN_ROOT}/adapter",
                               "--audit-log", "${CLAUDE_PLUGIN_DATA}/tool-calls.jsonl"]
-    assert (plugin / "adapter" / "adapter.yaml").is_file()
+    assert (plugin / "adapter" / ".hermit" / "adapter.yaml").is_file()
     assert result["roles"] == {"reviewer": "reviewer"} and result["omitted"] == []
 
 
@@ -211,7 +213,7 @@ def test_reconversion_drops_the_parts_the_adapter_lost(tmp_path):
     assert result["skills"] == [] and result["roles"] == {} and result["context"] is None
     assert not (plugin / "skills" / "verify-output").exists()
     assert not (plugin / "agents").exists() and not (plugin / "output-styles").exists()
-    assert (plugin / "adapter" / "adapter.yaml").is_file() and (plugin / ".mcp.json").is_file()
+    assert (plugin / "adapter" / ".hermit" / "adapter.yaml").is_file() and (plugin / ".mcp.json").is_file()
 
 
 @pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
@@ -251,3 +253,16 @@ def test_refuses_a_foreign_package_with_the_hosts_own_marker(tmp_path, target, m
     with pytest.raises(ValueError, match="did not create"):
         build(target, variant(tmp_path, roles=False, context=False), out, sys.executable)
     assert (out / "skills").is_dir()
+
+
+@pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
+def test_hooks_are_refused_by_every_target(tmp_path, target):
+    """No plugin carries hooks yet: converting an adapter that has them fails, or with --allow-lossy reports them."""
+    a = variant(tmp_path, roles=False, context=False)
+    (a / "hooks.json").write_text(json.dumps({"hooks": {"PostToolUse": [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]}}))
+    (a / "exports.yaml").write_text((a / "exports.yaml").read_text() + "hooks: hooks.json\n")
+    with pytest.raises(Unsupported, match="- hooks: no plugin carries an adapter's hooks yet \\(PostToolUse\\)"):
+        build(target, a, tmp_path / "x", sys.executable)
+    assert not (tmp_path / "x").exists()
+    assert build(target, a, tmp_path / "y", sys.executable, allow_lossy=True)["omitted"] == ["hooks"]

@@ -34,7 +34,7 @@ your agent, separately from the learner.
 
 ## How an update works
 
-Each step is one Codex session. It reads the task description and the adapter's `EVOLVER.md`, studies the step's
+Each step is one Codex session. It reads the task description and the adapter's `.hermit/EVOLVER.md`, studies the step's
 results, edits `ADAPTER.md`, calls `check_spec`, and writes a report whose first line says what it changed. The run
 records each session as one call with its token totals; to count the session's individual model requests, put a
 metering relay in front of the learner, as the examples' `launch.sh` does (`hermit/runtime/wire_meter.py`).
@@ -43,7 +43,7 @@ structurally valid update can reduce task performance. The final adapter is the 
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/codex/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/codex/evolver.yaml
 :language: yaml
 :start-at: params:
 ```

@@ -10,11 +10,13 @@ The question is the official task's: the task is built as `clbench run database_
 path (fast_forward, which also applies the schema drift when the position is past it), and is played by
 clbench's runner until that one question is graded. The host is `host.AdapterHost`: a fresh bare API call per
 question with native tools, the adapter's tools beside the task's, the per-episode wm call cap, the adapter's
-ADAPTER.md as the system prompt.
+context for the question as the system prompt (ADAPTER.md, plus what its context tool renders for the question's
+first prompt when it has one: ReHarness's retrieved reflections).
 
 Afterwards the question's turns go into the run's evidence store in the native layout (blockNNN/qNNN_id<id>.json
 and the per-question entry with its /evidence address), and the database the question was played on is registered
-for the learner's sql channel. One JSON line on stdout reports the result.
+for the learner's sql channel. One JSON line on stdout reports the result, with the context tool's whole result
+(`context_tool`, null without such a tool) for the learning material.
 
 Differences from one long native process, recorded: the task's temporary database copy is fresh per question (a
 host write would not carry to the next question; native hosts issue reads), and the task's question history before
@@ -78,7 +80,7 @@ def main() -> None:
     from src.tasks.database_exploration import task as dbtask
     from host import AdapterHost
     from hermit import Session
-    from hermit.algorithms.evolvers.mwm.evidence import clbench as clbench_evidence, readme as evidence_readme
+    from hermit.agent.evolver.methods.mwm.evidence import clbench as clbench_evidence, readme as evidence_readme
 
     row = json.loads(args.task)
     order, position = int(row["order"]), int(row["position"])
@@ -86,14 +88,15 @@ def main() -> None:
     evidence_dir = workdir / "evidence"
     host_ws = workdir / "host"
     host_ws.mkdir(parents=True, exist_ok=True)
-    from hermit.algorithms.evolvers.mwm import deployment as _dep
+    from hermit.agent.evolver.methods.mwm import deployment as _dep
     venue_texts = TASKS / "task-info" / "mwm"
     deployment = _dep.host_settings(venue_texts)
 
     task = dbtask.DatabaseExploration(schedule="default", run_index=order)
     task.prepare_run(order)
     session = Session(Path(args.adapter), evidence=evidence_dir, deployment=deployment or None)
-    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="database", name="mwm_framework")
+    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="database", name="mwm_framework",
+                         task_row=row)
     system.reset()
     task.reset()
     placeholders = [{"instance_id": q["question_id"], "success": False, "metadata": {}}
@@ -136,6 +139,7 @@ def main() -> None:
     print(json.dumps({"answer": q["final_answer"], "verdict": q["verdict"], "success": bool(outcome.success),
                       "reward": outcome.reward, "question_num": q["question_num"], "question_id": q["question_id"],
                       "queries_used": q["queries_used"], "raw_path": paths[q["question_num"]], "entry": entry,
+                      "context_tool": system.context_info,
                       "drifted": drifted, "tokens": tokens, "wall_s": round(wall, 1)}))
 
 

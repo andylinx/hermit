@@ -7,6 +7,17 @@ from pathlib import Path
 import sys
 
 
+def _loads(adapter: Path, command: str) -> bool:
+    """Whether the adapter's metadata and exports load; if not, say why in one line (a 0.1 layout is named)."""
+    from hermit.adapter.loader import load_manifest
+    try:
+        load_manifest(adapter)
+    except (OSError, ValueError) as error:
+        print(f"hermit {command}: {error}", file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="hermit", description="Train harness adapters.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -38,15 +49,18 @@ def main(argv=None) -> int:
     srv = sub.add_parser("serve", help="run the adapter's MCP tool server on stdio, for a host session")
     srv.add_argument("adapter", type=Path)
     srv.add_argument("--audit-log", type=Path, help="append every tool call to this JSONL file")
-    # `backends` has its own parser (hermit.backends): list the backends, resolve or check a model reference.
+    # `backends` has its own parser (hermit.agent.model.backends): list the backends, resolve or check a model reference.
     sub.add_parser("backends", help="list the model backends; show, shell or check a <backend>/<model> reference",
                    add_help=False)
     if argv is None:
         argv = sys.argv[1:]
     if argv and argv[0] == "backends":
-        from hermit.backends import main as backends_main
+        from hermit.agent.model.backends import main as backends_main
         return backends_main(list(argv[1:]))
     args = parser.parse_args(argv)
+
+    if args.command in ("serve", "deploy") and not _loads(args.adapter, args.command):
+        return 2
 
     if args.command == "serve":
         from hermit import __version__
@@ -82,7 +96,12 @@ def main(argv=None) -> int:
             from hermit.hosts.pi import prepare
         else:
             from hermit.hosts.claude_code import prepare
-        print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))
+        try:
+            result = prepare(args.adapter, args.workspace, str(Path(args.python).absolute()))
+        except ValueError as error:
+            print(f"hermit deploy: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2))
         return 0
     from hermit.config import Config
     config = Config.load(args.config, args.overrides)

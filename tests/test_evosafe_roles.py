@@ -5,12 +5,12 @@ import shutil
 
 import pytest
 
-from hermit.evolver.base import Access, Progress, StepContext, Workspace
-from hermit.algorithms.evolvers.evosafe import roles
-from hermit.algorithms.evolvers.evosafe.evidence import training_evidence, result_evidence
-from hermit.algorithms.evolvers.evosafe.evidence import failure_packet, audit_evidence
+from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
+from hermit.agent.evolver.methods.evosafe import roles
+from hermit.agent.evolver.methods.evosafe.evidence import training_evidence, result_evidence
+from hermit.agent.evolver.methods.evosafe.evidence import failure_packet, audit_evidence
 
-TEMPLATE = Path(__file__).resolve().parents[1] / 'hermit/algorithms/templates/evosafe'
+TEMPLATE = Path(__file__).resolve().parents[1] / 'hermit/adapter/templates/evosafe'
 
 
 def outcome(task, clean=True, attack=False):
@@ -489,7 +489,7 @@ def test_provider_safety_refusal_stops_without_retry(tmp_path, monkeypatch):
 
 
 def test_safety_refusal_detector_only_uses_provider_errors(tmp_path):
-    from hermit.algorithms.evolvers.evosafe.codex import safety_refused
+    from hermit.agent.evolver.methods.evosafe.codex import safety_refused
     log = tmp_path / 'events.jsonl'
     phrase = 'flagged for possible cybersecurity risk'
     log.write_text(json.dumps({'type': 'agent_message', 'message': phrase}))

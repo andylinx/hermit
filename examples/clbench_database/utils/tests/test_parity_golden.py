@@ -1,4 +1,4 @@
-"""Golden parity: the framework's mwm (algorithms/templates/mwm + algorithms/evolvers/mwm) renders the same texts as native metaworld.
+"""Golden parity: the framework's mwm (adapter/templates/mwm + agent/evolver/methods/mwm) renders the same texts as native metaworld.
 
 Ported from the old port's tasks/CLBench/tests/test_parity_golden.py to the current layout. Skipped when the native
 checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
@@ -10,7 +10,7 @@ checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
 3. the review-session prompt body (native session.review_prompt vs prompt.build_prompt);
 4. the venue environment READMEs (native env_surface.readme; the query channel is the sql tool here);
 5. the wm run sandbox module, byte for byte, and its result shape;
-6. the wm tool description and schema (native TOOL_SPEC vs adapter.yaml).
+6. the wm tool description and schema (native TOOL_SPEC vs exports.yaml).
 """
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ import yaml
 
 TASKS = Path(__file__).resolve().parents[2]                 # examples/clbench_database/utils/agent
 FRAMEWORK = TASKS.parents[1]
-TEMPLATE = FRAMEWORK / "hermit/algorithms/templates/mwm"
-EVOLVER = FRAMEWORK / "hermit/algorithms/evolvers/mwm"
+TEMPLATE = FRAMEWORK / "hermit/adapter/templates/mwm"
+EVOLVER = FRAMEWORK / "hermit/agent/evolver/methods/mwm"
 METAWORLD = Path(os.environ.get("MW_METAWORLD", str(Path.home() / "code/metaworld")))
 VENUES = {"clbench": TASKS, "poker": TASKS.parent / "clbench_poker"}
 sys.path.insert(0, str(FRAMEWORK))
@@ -111,7 +111,7 @@ class PackageParity(unittest.TestCase):
             native = _native("from mwm import wm_iface; "
                              f"i=wm_iface.WorldModelInterface({str(wrepo)!r}, {str(evidence)!r}, delegation='none', "
                              "code_channel=True); print(i.package(wm_iface.transport_note()), end='')")
-            from hermit.algorithms.evolvers.mwm import deployment as _dep
+            from hermit.agent.evolver.methods.mwm import deployment as _dep
             host = _dep.host_settings(TASKS / "utils/task-info/mwm")
             # The pipeline reads ADAPTER.md as the Evolver wrote it after an adopted step; write it the same way
             # first (interface.context with the venue's host.json), since no step has run on this copy.
@@ -193,7 +193,7 @@ class ToolSpecParity(unittest.TestCase):
     def test_wm_tool_matches_native(self):
         native = json.loads(_native("import json; from mwm import wm_iface; "
                                     "print(json.dumps(wm_iface.TOOL_SPEC['function']))"))
-        tool = yaml.safe_load((TEMPLATE / "adapter.yaml").read_text())["exports"]["tools"][0]
+        tool = yaml.safe_load((TEMPLATE / "exports.yaml").read_text())["tools"][0]
         self.assertEqual(tool["name"], native["name"])
         self.assertEqual(tool["description"], native["description"])
         self.assertEqual(tool["input_schema"]["properties"], native["parameters"]["properties"])

@@ -5,7 +5,7 @@ Start with the extension boundary you need. A task integration normally requires
 | Change | Entry point | Verify |
 |---|---|---|
 | New task, acting agent, or judge | [Bring your task](../tutorials/your-own-task.md), [task contract](../framework/task.md) | No-adapter probe, adapter consumption, split isolation, logs, scoring |
-| New instruction/skill/tool structure | [Customize an adapter](../tutorials/customize-an-adapter.md), [manifest](../framework/adapter-manifest.md) | Learnable/fixed rules, checker, exported schemas |
+| New instruction/skill/tool structure | [Customize an adapter](../tutorials/customize-an-adapter.md), [adapter metadata](../framework/adapter-manifest.md) | Learnable/fixed rules, checker, exported schemas |
 | New learning method | [Evolver tutorial](../tutorials/custom-evolver.md), [full contract](../framework/custom-evolver.md) | Failure handling, state persistence, usage, final selection |
 | Reproduction of a published method | [Reproduce a published method](reproducing-a-method.md) | The adapter and the Evolver named, the differences from the authors' code, the protocol, the first evaluation on the shared settings |
 | New host exporter | `hermit/hosts/`, `hermit/plugins/` | Supported exports, refusal/omission behavior, repeat generation |
@@ -16,12 +16,12 @@ Start with the extension boundary you need. A task integration normally requires
 | Location | Responsibility |
 |---|---|
 | `hermit/cli.py`, `config.py` | Command parsing and config resolution |
-| `hermit/agents/` | Built-in acting agents and the Agent/function interface |
+| `hermit/agent/` | The [agent layers](../framework/agent-layers.md): `model/` (Layer 1), `base/` (Layer 2, the Base Agents), `acting/` and `evolver/` (Layer 3) |
+| `hermit/agent/acting/` | The Acting Agent interface and the built-in acting agents |
+| `hermit/agent/evolver/` | The Evolver interface and the agent Evolver; `methods/` holds the built-in learning methods |
 | `hermit/task.py` | Task records, callable loading, pipeline/judge types |
 | `hermit/adapter/` | Manifest loading and acting consumption |
-| `hermit/algorithms/templates/` | Built-in adapter seeds and specifications |
-| `hermit/algorithms/evolvers/` | Built-in learning methods and defaults |
-| `hermit/evolver/` | Shared learner contracts and program/agent execution |
+| `hermit/adapter/templates/` | Built-in adapter seeds and specifications |
 | `hermit/trainer/` | Training loop, rollouts, material, budgets, recovery |
 | `hermit/runtime/` | Tool serving, sandboxing, and runtime support |
 | `examples/<task>/utils/` | Task integrations and benchmark-owned acting/scoring logic |

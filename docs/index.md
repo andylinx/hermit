@@ -68,6 +68,8 @@ methods/skillopt
 methods/mwm
 methods/harness2
 methods/continual_harness
+methods/reharness
+methods/meta_harness_adapter
 methods/evosafe
 ```
 
@@ -90,6 +92,7 @@ recipes/lean-collaboration
 developer/index
 developer/reproducing-a-method
 developer/service-design
+framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver
 framework/adapter

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Deploy an adapter's exports into a Codex workspace: AGENTS.md context, MCP tools, native roles, skills.
+"""Deploy an adapter into a Codex workspace: the whole adapter under hermit/<id>/, and its exports connected to
+Codex's own places: AGENTS.md context, MCP tools, native roles, skills, hooks.
 
 Global Codex settings are never changed; everything goes into the workspace (.codex/).
 """
@@ -11,10 +12,11 @@ import subprocess
 import sys
 import tomllib
 
-from hermit.adapter.loader import load_manifest
+from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, check_workspace, copy_skills, render_exports, retire_roles,
-                                         role_body, server_name, source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
+                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, render_exports,
+                                 retire_roles, role_body, server_name, source_label)
 
 
 def _toml(value) -> str:
@@ -25,11 +27,16 @@ def _toml(value) -> str:
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
     adapter, output = adapter.resolve(), output.resolve()
+    refused = not_portable(load_manifest(adapter), "A Codex workspace")   # before anything is written
+    if refused:
+        raise ValueError(refused)
     previous = check_workspace(adapter, output, "codex")
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(adapter)
+    files = adapter_files(adapter, output, manifest, previous)
+    hooks = hook_definitions(adapter, manifest)
     exports = render_exports(adapter, python)
-    context = exports["context"]
+    context = folder_note(output, manifest) + "\n\n" + exports["context"]
     roles = [{**r, "name": r["name"].replace("-", "_")} for r in exports["agents"]]
     role_name_map = {r["name"]: r["name"].replace("-", "_") for r in exports["agents"]}
     if any(k != v for k, v in role_name_map.items()):
@@ -41,7 +48,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     existing = context_path.read_text() if context_path.exists() else PROJECT_CONTEXT
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
-    has_tools = bool(manifest.get("tools"))
+    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     agents_dir = output / ".codex" / "agents"
@@ -73,13 +80,21 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     tomllib.loads(config_text)
     (output / ".codex" / "config.toml").write_text(config_text)
     context_path.write_text(context_text)
+    hooks_path = output / ".codex" / "hooks.json"
+    if hooks:
+        hooks_path.write_text(json.dumps(hook_commands(hooks, adapter_folder(output, manifest)), indent=2) + "\n")
+    elif previous.get("hooks") and hooks_path.is_file():
+        hooks_path.unlink()
     retire_roles(output, previous, role_paths)
     skills = copy_skills(adapter, manifest, output / ".codex" / "skills")
+    copy_adapter(adapter, output, manifest, files, previous)
     result = {"host": "codex", "adapter_id": manifest["id"], "version": manifest["version"], "adapter": str(adapter),
               "workspace": str(output), "context_injected_via": "AGENTS.md",
               "server_name": server_name(manifest) if has_tools else None, "server": server, "roles": role_paths,
               "role_name_map": role_name_map, "skills_dir": str(output / ".codex" / "skills") if skills else None,
-              "skills": skills, "audit_log": str(audit) if has_tools else None}
+              "skills": skills, "hooks": str(hooks_path) if hooks else None,
+              "audit_log": str(audit) if has_tools else None,
+              "adapter_dir": str(adapter_folder(output, manifest)), "files": files}
     (output / MARKER).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     return result
 

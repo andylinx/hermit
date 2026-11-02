@@ -8,11 +8,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from hermit.algorithms.evolvers.evosafe.evidence import failure_packet, result_evidence
-from hermit.algorithms.evolvers.evosafe.roles import (
+from hermit.agent.evolver.methods.evosafe.evidence import failure_packet, result_evidence
+from hermit.agent.evolver.methods.evosafe.roles import (
     ANALYZER, ANALYSIS_SCHEMA, EDITABLE, invoke_role, measured_comparison,
 )
-from hermit.evolver.agent import parse_log
+from hermit.agent.base.records import parse_log
 
 
 def debug(source, output, analyze=False, resume=False):

@@ -29,18 +29,18 @@ from pathlib import Path
 
 import yaml
 
-from hermit.adapter.manifest import MANIFEST, files_of, read_manifest
-from hermit.backends import bindings_of, problems_of, registry
+from hermit.adapter.manifest import CARD, MANIFEST, files_of, read_manifest
+from hermit.agent.model.backends import bindings_of, problems_of, registry
 from hermit.config import Config
-from hermit.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
+from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
-from hermit.evolver.loader import find, instantiate
-from hermit.llm import ChatClient
+from hermit.agent.evolver.loader import find, instantiate
+from hermit.agent.model.llm import ChatClient
 from hermit.isolate import HOME_SECRETS, ToolRunner, agent_pipeline, profile
 from hermit.sandbox import AllowlistProxy, Sandbox, network_mode
 from hermit.spec import check_spec, repair
 from hermit.task import TaskData, load_aggregate, load_callable, summarise
-from hermit.tools import FunctionTool, ToolServer, assemble
+from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
 from hermit.trainer.material import Material
@@ -109,15 +109,6 @@ def _copy_dir(src: Path, dst: Path) -> None:
         shutil.copytree(src, dst, symlinks=True)
     else:
         dst.mkdir(parents=True)
-
-
-def _set_origin(adapter: Path, template: dict) -> None:
-    path = adapter / MANIFEST
-    data = yaml.safe_load(path.read_text())
-    origin = {"template": template["id"], "version": template["version"]}
-    if data.get("origin") != origin:
-        data["origin"] = origin
-        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
 
 class Trainer:
@@ -331,15 +322,24 @@ class Trainer:
                              spent=spent)
 
     def _context(self) -> Context:
-        tools = self._tools(None)
+        agent = self._agent(None)
+        tools = self._tools(None, agent)
         return Context(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
-                       message=self._message(None, tools), sandbox=self.sandbox)
+                       message=self._message(None, tools), sandbox=self.sandbox, agent=agent)
 
-    def _tools(self, cancel: threading.Event | None, metered: list | None = None) -> dict:
+    def _agent(self, cancel: threading.Event | None, metered: list | None = None):
+        """The run's model as the Evolver's `direct` Base Agent, metered; None without an `llm` section."""
+        if self.llm is None:
+            return None
+        return evolver_agent(self.llm, self.budget, metered, cancel, self.run_dir / "tools.jsonl")
+
+    def _tools(self, cancel: threading.Event | None, agent=None) -> dict:
+        # The `llm` tool's own agent: metered alike, its calls logged by the tool (so a refused call is logged too)
+        tool_agent = None if agent is None else evolver_agent(self.llm, self.budget, agent.model.metered, cancel)
         tools = assemble(adapter=self.ws.adapter, root=self.run_dir / "root",
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
-                         budget=self.budget, llm_client=self.llm, python=self.python, metered=metered,
+                         budget=self.budget, agent=tool_agent, python=self.python,
                          runner=self.tool_runner if self.tool_runner.enabled else None,
                          within=[self.ws.scratch, self.ws.state])
         tools["run_agent"] = self._run_agent_tool()
@@ -485,14 +485,15 @@ class Trainer:
         _fresh(self.ws.output)
         cancel = threading.Event()
         metered: list[Usage] = []
-        tools = self._tools(cancel, metered)
+        agent = self._agent(cancel, metered)
+        tools = self._tools(cancel, agent)
         # 5. the Evolver.
         e0 = time.time()
         with ToolServer(tools) as server:
             ctx = StepContext(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,
-                              session=session if d["evolver"]["resume"] else None)
+                              session=session if d["evolver"]["resume"] else None, agent=agent)
             method = self.evolver.bootstrap if what == "bootstrap" else self.evolver.step
             box, stopped, alive = self._call(what, lambda: method(ctx), progress=progress,
                                              timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
@@ -554,9 +555,6 @@ class Trainer:
         adapter = self.ws.adapter
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
-        if self._dirty():               # the Evolver changed something: the committed adapter names its origin
-            _set_origin(adapter, self.template)
-            Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"
                    f"run: {self.run_name}\nevolver: {self.spec.name}\nrecords: {self.run_dir}/step_{progress.step:04d}\n")
         if (self.ws.output / "report.md").exists():
@@ -565,13 +563,12 @@ class Trainer:
             message += f"\n{result.rationale.strip()[:2000]}\n"
         if not self._dirty():
             return [], [], {"passed": True, "note": "adapter unchanged"}
-        check = check_spec(adapter, self.run_dir / "root", python=self.python)
+        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy)
         if check.passed:
             commit = Tree.commit(self.checkout, message)
             return [commit] if commit else [], [], check.to_dict()
         invalid = Tree.commit(self.checkout, message + f"\n{INVALID_MARK}\n")
         final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python)
-        _set_origin(adapter, self.template)
         Tree.sync(adapter, self.checkout)
         lines = "\n".join(f"- {r['path']}: restored from {r['restored_from']} ({r['reason']})" for r in repaired)
         fixed = Tree.commit(self.checkout, f"repair {label}: {len(repaired)} file(s)\n\n{lines}\n")
@@ -628,7 +625,8 @@ class Trainer:
                                "sandbox": d["sandbox"], "evolver_access": d["evolver_access"],
                                "validation_given": bool(d["data"].get("val"))},
                            warnings=self.warnings, summary=note, report=report)
-        (self.ws.adapter / "CARD.md").write_text(text)
+        (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
+        (self.ws.adapter / CARD).write_text(text)
         Tree.sync(self.ws.adapter, self.checkout)
         Tree.commit(self.checkout, f"final: {self.run_name}\n\n{note}\n")
         final_commit = Tree.head(self.checkout)

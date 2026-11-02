@@ -66,15 +66,16 @@ A full, working config is
 
 ## The template: a defense bundle
 
-`evosafe@1.0` has three learnable files and two fixed ones:
+`evosafe@1.0` has three learnable files; the rest is fixed:
 
 | File | Role |
 |---|---|
 | `ADAPTER.md` (learnable) | Prompt surface. Appended to the agent's native system prompt. |
 | `defense.py` (learnable) | Executable surface. `build()` returns a `Defense` with `system_prompt_transform`, `on_pre_tool_call`, `on_post_tool_call`. One instance per episode, so per-session state is allowed. |
 | `BUNDLE.md` (learnable) | Design record: evidence, parent, hypothesis, expected utility cost. Not shown to the agent. |
-| `EVOLVER.md` (fixed) | The editing contract given to every role. |
-| `check.py` (fixed) | Static check: files present, `defense.py` parses and defines `build()`. |
+| `.hermit/EVOLVER.md` | The editing contract given to every role. |
+| `.hermit/check.py` | Static check: files present, `defense.py` parses and defines `build()`. |
+| `exports.yaml` (fixed) | `context: ADAPTER.md`. The hooks need a task bridge, so the template sets `plugin-portable: false`: `hermit deploy` and `hermit convert` refuse these adapters. |
 
 The starting bundle (`root`) is a short instruction/data boundary in `ADAPTER.md` with identity hooks.
 
@@ -137,7 +138,7 @@ cascade, compared with the parent on `eval_task_ids`.
 
 ## Parameters
 
-```{literalinclude} ../../hermit/algorithms/evolvers/evosafe/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/evosafe/evolver.yaml
 :language: yaml
 ```
 

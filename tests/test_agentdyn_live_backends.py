@@ -62,7 +62,7 @@ def test_compatible_victim_tools_usage_and_error_redaction(tmp_path, monkeypatch
 
 
 def test_codex_proposal_command_schema_and_usage(tmp_path, monkeypatch):
-    from hermit.algorithms.evolvers.evosafe import codex
+    from hermit.agent.evolver.methods.evosafe import codex
     scratch, output = tmp_path / "scratch", tmp_path / "output"
     scratch.mkdir()
     output.mkdir()
@@ -124,7 +124,7 @@ def test_check_respects_and_restores_disabled_sandbox(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
     config_path = root / "examples/agentdyn/nvidia-smoke.yaml"
     data = yaml.safe_load(config_path.read_text())
-    data["template"] = str(root / "hermit/algorithms/templates/evosafe")
+    data["template"] = str(root / "hermit/adapter/templates/evosafe")
     path = tmp_path / "run.yaml"
     path.write_text(yaml.safe_dump(data))
     monkeypatch.setattr(spec, "SANDBOX_ENFORCE", "required")

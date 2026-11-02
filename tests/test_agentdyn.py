@@ -7,14 +7,14 @@ import shutil
 
 import pytest
 
-from hermit.evolver.base import Access, Progress, StepContext, Workspace
-from hermit.evolver.loader import find, instantiate
+from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
+from hermit.agent.evolver.loader import find, instantiate
 from hermit.integrations.agentdyn import GuardedRuntime, aggregate, load_defense, run, score, validate_case
 from hermit.spec import check_spec
 from hermit.task import RunOutput
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit/algorithms/templates/evosafe"
+TEMPLATE = ROOT / "hermit/adapter/templates/evosafe"
 
 
 @pytest.fixture(autouse=True)

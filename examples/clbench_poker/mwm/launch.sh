@@ -8,7 +8,7 @@
 #   MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8102/v1 \
 #     MW_TAG=mwm_poker_local WM_PORT=3431 MW_ORDERS="0" ./launch.sh               # a local vLLM server
 #
-# Models are backend references, <backend>/<model id> (`hermit backends list`; hermit/backends.py):
+# Models are backend references, <backend>/<model id> (`hermit backends list`; hermit/agent/model/backends.py):
 # MW_MODEL names the host's and the learner's model alike, MW_HOST_MODEL and MW_EVOLVER_MODEL either alone (default
 # GLM 5.3 Flash on Fireworks). The backend's key variable (FIREWORKS_API_KEY, ...) must be set, or MW_KEY_FILE holds
 # the key (default ~/code/metaworld/.fireworks, read for the fireworks backend only). The learner's backend must
@@ -40,8 +40,8 @@ META_PORT=$((WM_PORT+1))
 TASKDIR=$FRAMEWORK/examples/clbench_poker/utils
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
-# The two models resolved on their backends (the shell form of hermit.backends: HOST_* and EVOLVER_*).
-resolve() { "$PY" -m hermit.backends shell "$2" | sed "s/^HA_/$1_/"; }
+# The two models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_* and EVOLVER_*).
+resolve() { "$PY" -m hermit.agent.model.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }
@@ -89,6 +89,7 @@ start_meter $META_PORT "$EVOLVER_ORIGIN" "$RUNS/$TAG/meta_wire_ledger.json" "$RU
 stamp() { echo "$(git -C "$1" rev-parse --short HEAD)$([ -n "$(git -C "$1" status --porcelain)" ] && echo -dirty || true)"; }
 HEAD=$(stamp "$FRAMEWORK"); CLB_HEAD=$(stamp "$CLBENCH"); MW_HEAD=$(stamp "$METAWORLD")
 
+PIDS=()
 for i in ${MW_ORDERS:-0}; do
   WD="$RUNS/$TAG/order$i/task"
   [ -e "$RUNS/$TAG/$TAG-o$i" ] && { echo "REFUSING: $RUNS/$TAG/$TAG-o$i exists"; exit 1; }
@@ -96,7 +97,7 @@ for i in ${MW_ORDERS:-0}; do
   mkdir -p "$WD/evidence"
   : > "$WD/current_db"
   # The store's README exists before the bootstrap session, as natively (the wrapper wrote it before block 0).
-  "$PY" -m hermit.algorithms.evolvers.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
   # Trainer derives codex's provider settings from the binding and passes the key variable into the sandbox).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
@@ -105,13 +106,22 @@ for i in ${MW_ORDERS:-0}; do
        "host_model=$HOST_MODEL host_effort=$EFFORT evolver=mwm evolver_model=$EVOLVER_MODEL evolver_effort=$EFFORT" \
        "meter=$META_PORT shuffle=false bucket=${TAG}_o$i ===" > "$LOG"
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" \
-    setsid nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
+    setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
       "evolver.params.args=[-c, model_reasoning_effort=\"$EFFORT\"]" \
       "evolver.params.evidence=$WD/evidence" "evolver_access.environment=[$WD/evidence]" \
       >> "$LOG" 2>&1 < /dev/null &
+  PIDS+=("$!")
   echo "order $i -> pid $! log $LOG"
   sleep 3
 done
+
+# MW_WAIT=1 (docker/offline.sh run sets it): wait for every training started above and exit non-zero when one failed,
+# so the caller sees the trainings' outcome, not only this launcher's.
+if [ "${MW_WAIT:-0}" = 1 ]; then
+  failed=0
+  for pid in "${PIDS[@]}"; do wait "$pid" || failed=$((failed + 1)); done
+  [ "$failed" = 0 ] || { echo "$failed of ${#PIDS[@]} training run(s) failed: see each order's run.log" >&2; exit 1; }
+fi

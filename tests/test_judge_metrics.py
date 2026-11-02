@@ -86,7 +86,7 @@ def fake_claude(event, check=None):
 
 
 def test_claude_role_has_no_tools_and_returns_structured_output(tmp_path, monkeypatch):
-    from hermit.algorithms.evolvers.evosafe import claude_code
+    from hermit.agent.evolver.methods.evosafe import claude_code
     answer = {"approved": True, "summary": "ok"}
 
     def check(command, stdin):
@@ -111,7 +111,7 @@ def test_claude_role_has_no_tools_and_returns_structured_output(tmp_path, monkey
     ({"type": "result", "is_error": True, "subtype": "error_max_turns"}, "Claude Code failed"),
 ])
 def test_claude_role_reports_refusal_and_failure(tmp_path, monkeypatch, event, expected):
-    from hermit.algorithms.evolvers.evosafe import claude_code
+    from hermit.agent.evolver.methods.evosafe import claude_code
     monkeypatch.setattr(claude_code.subprocess, "Popen", fake_claude(event))
     response, _, error = claude_code.call_role(role_ctx(tmp_path), [{"role": "user", "content": "x"}],
                                               {"type": "object"}, "trial-001-designer")

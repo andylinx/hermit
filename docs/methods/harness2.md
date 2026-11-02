@@ -13,7 +13,7 @@ the test tasks are processed as one stream.
 template: harness2-codex@1.0
 data: {train: stream.txt, step_size: 1, shuffle: false}   # one task per step, in the stream's order
 trainer: {epochs: 1}
-agent: {name: ../utils/agent/codex_agent.py:OfficeQACodexAgent}   # an agent that runs `codex exec` with the tree deployed
+agent: {name: codex, params: {deploy: tree}}                      # Codex with the tree deployed in its workspace
 evolver:
   name: harness2_upstream
   params: {model: <backend>/<model>, effort: medium, k: 1, slots: slots.yaml}
@@ -49,14 +49,16 @@ costs four executions and four sessions (two editors, the composer, the reflecto
 The `harness2-codex` template is the paper's Codex harness as an adapter, in the layout Codex reads from its
 workspace root: `AGENTS.md` (the one always-on file, at most 8,000 characters), `.agents/skills/<name>/SKILL.md`
 with the helpers under its `scripts/`, `scripts/<name>.py`, `sub_agents/<name>/AGENT.md` and `.codex/hooks.json`.
-`ADAPTER.md` is kept equal to `AGENTS.md`; the template's `check.py` restates upstream's validator (a trigger line in
+`ADAPTER.md` is kept equal to `AGENTS.md`; the template's `.hermit/check.py` restates upstream's validator (a trigger line in
 `AGENTS.md` for every skill, scripts that compile, a helper a skill invokes travels with it, the hook schema, the
 grader-verdict tripwire). The editor sessions see upstream's Codex surface text, so skills on demand, scripts,
 subagents and hooks are all levers.
 
 An acting agent deploys the tree itself: `AGENTS.md`, `.agents/`, `scripts/` and `.codex/` are copied to the
 workspace root (upstream's `codex_root` install), `sub_agents/` become agent roles in the session's `CODEX_HOME`, and
-the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The OfficeQA agent does this in a Docker
+the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The template's `exports.yaml` declares
+the skills, the subagents and the hooks, so `hermit deploy` connects them to the host, each hook's command run from
+the workspace's copy of the tree under `hermit/harness2-codex/`; there the user trusts the hooks before they run. The OfficeQA agent does this in a Docker
 container per session ([example](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream)); the trajectory is the `codex exec
 --json` event stream, rendered by upstream's own Codex renderer. On OfficeQA's 172 test questions as one stream, with
 GLM 5.3 Flash as executor and editors, the deliverable scores 0.651 against 0.576 for the initial skill it starts
@@ -73,7 +75,7 @@ An interrupted run is instead resumed in place, as any run ([runs guide](../guid
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/harness2_upstream/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/harness2_upstream/evolver.yaml
 :language: yaml
 ```
 

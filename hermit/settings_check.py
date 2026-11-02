@@ -7,12 +7,12 @@ import shutil
 import tempfile
 import time
 
-from hermit.adapter.manifest import read_manifest
-from hermit.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
+from hermit.adapter.manifest import MANIFEST, read_manifest
+from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
-from hermit.evolver.loader import find, instantiate, load_class
+from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
-from hermit.agents.base import load_agent
+from hermit.agent.acting.agent import load_agent
 from hermit.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
 from hermit.task import TaskData, load_aggregate, load_callable
 from hermit.trainer.rollout import run_one
@@ -38,7 +38,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         template_dir = config.template_dir()
         start = config.path(d["start_from"]) if d.get("start_from") else template_dir
         problems = []
-        if start is not None and (start / "adapter.yaml").is_file():
+        if start is not None and (start / MANIFEST).is_file():
             # Match Trainer's explicit sandbox setting, restoring the process
             # default afterwards so checking one config cannot affect another.
             from hermit import spec as spec_module

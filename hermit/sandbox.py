@@ -469,6 +469,10 @@ class Sandbox:
                 for name in names:
                     if not os.path.exists(name) or name.startswith("/usr"):
                         continue
+                    # A link under a directory bound already (uv's version alias of an interpreter kept inside a
+                    # granted checkout) is there through that directory; binding it again fails on a link.
+                    if os.path.islink(name) and any(name.startswith(b + "/") for b in (*ro, *rw)):
+                        continue
                     key = (flag, name)
                     if key in seen and not fresh:          # a call's own paths go on top of the masks, always
                         continue
@@ -731,8 +735,9 @@ class HidingSandbox:
 
     def wrap(self, command, **kw):
         args, env = self.inner.wrap(command, **kw)
-        if args and args[0] == "bwrap" and "--" in args:
-            cut = args.index("--")
+        start = next((i for i, a in enumerate(args) if Path(a).name == "bwrap"), None)   # after an audit's strace
+        if start is not None and "--" in args[start:]:
+            cut = args.index("--", start)
             cover = []
             for p in self.hidden:
                 p = p.resolve()

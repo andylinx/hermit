@@ -95,7 +95,7 @@ secure completion、按类别的错误数；只有全部 episode 完成时才给
 
 ## 本分支非核心的新增（不需要上游合并）
 
-- `hermit/algorithms/evolvers/evosafe/claude_code.py`：EvoSafe 角色可用 Claude Code CLI
+- `hermit/agent/evolver/methods/evosafe/claude_code.py`：EvoSafe 角色可用 Claude Code CLI
   （`proposer: claude`），无工具（`--tools ""`）、无会话持久化、JSON Schema 结构化输出、
   可取消/超时，拒答时停止搜索而不自动重试。与 Codex 后端接口相同。
 - `examples/agentdyn/nvidia-thirty-claude.yaml`：Claude Code 角色 + 30/30/30 数据的实验配置。

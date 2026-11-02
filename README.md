@@ -13,6 +13,7 @@
 [![Website](https://img.shields.io/badge/website-online-C6743C.svg)](https://infini-ai-lab.github.io/hermit/)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](https://infini-ai-lab.github.io/hermit/docs/)
 [![WeChat](https://img.shields.io/badge/WeChat-community-07C160?logo=wechat&logoColor=white)](assets/community/wechat.md)
+[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.gg/CKjBjgVQDV)
 
 **[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](https://infini-ai-lab.github.io/hermit/docs/)**
 
@@ -21,6 +22,11 @@
 ---
 
 Hermit is a framework for training, evaluating, and deploying harness adapters, with support for multiple harness evolution algorithms. It adapts your agent to new tasks by evolving an external adapter while keeping your existing model and harness unchanged.
+
+## News
+
+- **[2026/10]** New harness evolution supported: **[Meta-Harness Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html)**, **[ReHarness](https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html)**, and **[Harness²](https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html)**.
+- **[2026/10]** **Hermit v0.1.0** released — the first public release for training, evaluating, and deploying harness adapters. See the [release post](https://x.com/haizhong_zheng/status/2114768121705775463).
 
 ## What Is a Harness Adapter?
 
@@ -48,11 +54,11 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a></td>
 </tr>
 <tr>
 <td>🚧 <strong>Coming Soon</strong></td>
-<td><a href="https://github.com/ace-agent/ace">ACE</a> · <a href="https://arxiv.org/abs/2610.12668">ReHarness</a></td>
+<td><a href="https://github.com/ace-agent/ace">ACE</a></td>
 </tr>
 </tbody>
 </table>
@@ -166,7 +172,7 @@ The generated `AGENTS.md` contains the learned rule. Start Codex in that workspa
 
 #### Harness Evolution Recipes
 
-Train and evaluate harness adapters on benchmarks using different evolution methods. Each task's README reports results; each included adapter's `CARD.md` records evaluation details.
+Train and evaluate harness adapters on benchmarks using different evolution methods. Each task's README reports results; each included adapter's `.hermit/CARD.md` records evaluation details.
 
 <table align="center">
 <thead>
@@ -179,6 +185,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MWM</a></td>
 <td><a href="examples/clbench_database/mwm/">CL-Bench database</a> · <a href="examples/clbench_poker/mwm/">CL-Bench poker</a> · <a href="examples/servelearnbench/mwm/">ServeLearnBench</a></td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a></td>
+<td><a href="examples/clbench_database/reharness/">CL-Bench database</a> · <a href="examples/clbench_poker/reharness/">CL-Bench poker</a> · <a href="examples/officeqa/reharness/">OfficeQA</a></td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a></td>
@@ -195,6 +205,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a></td>
 <td><a href="examples/officeqa/continual_harness/">OfficeQA</a> (policy, sub-agents, skills and memory refined in place, Codex as the acting agent)</td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a></td>
+<td><a href="examples/officeqa/meta_harness_adapter/">OfficeQA</a> (whole adapters searched by a coding-agent proposer, Codex as the acting agent)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>
@@ -263,7 +277,7 @@ The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five
 
 ```bash
 mkdir -p .demo
-cp -R hermit/algorithms/templates/prompt_only .demo/adapter
+cp -R hermit/adapter/templates/prompt_only .demo/adapter
 hermit deploy --adapter .demo/adapter --workspace .demo/codex-workspace --host codex
 cat .demo/codex-workspace/AGENTS.md
 ```
@@ -333,7 +347,7 @@ Use Hermit to deploy an existing adapter, train one on your tasks, or develop an
 
 ## Community
 
-Join our [WeChat community](assets/community/wechat.md) to discuss harness evolution, share experiments, and connect with other users and contributors.
+Join our [WeChat community](assets/community/wechat.md) or [Discord server](https://discord.gg/CKjBjgVQDV) to discuss harness evolution, share experiments, and connect with other users and contributors.
 
 ## Contributing
 
