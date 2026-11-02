@@ -2,6 +2,7 @@
 
     def run(task: dict, adapter: Path | None) -> RunOutput        # pipeline; adapter=None = no adapter at all
     def score(task: dict, output: RunOutput) -> JudgeResult | dict  # judge
+    def aggregate(records: list[dict]) -> dict                     # optional: judge.aggregate, task-level metrics
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ class JudgeResult:
     score: float
     feedback: str = ""
     extra: dict = field(default_factory=dict)
+    metrics: dict = field(default_factory=dict)   # named per-episode values a task's aggregate combines; optional
 
 
 def load_callable(spec: str, base: Path) -> Callable:
@@ -111,9 +113,28 @@ def normalise_judge(value) -> JudgeResult:
     if isinstance(value, JudgeResult):
         return value
     if isinstance(value, dict):
-        rest = {k: v for k, v in value.items() if k not in ("score", "feedback")}
-        return JudgeResult(float(value["score"]), str(value.get("feedback", "")), rest)
+        rest = {k: v for k, v in value.items() if k not in ("score", "feedback", "metrics")}
+        return JudgeResult(float(value["score"]), str(value.get("feedback", "")), rest, dict(value.get("metrics") or {}))
     return JudgeResult(float(value))
+
+
+def load_aggregate(judge: dict, base: Path) -> Callable | None:
+    """The judge's optional task-level aggregate (`judge.aggregate`, a function in the judge's file or module)."""
+    return load_callable(f"{judge['path']}:{judge['aggregate']}", base) if judge.get("aggregate") else None
+
+
+def summarise(records: list[dict], aggregate: Callable | None) -> dict | None:
+    """The aggregate of run records (status, output, judge, ...), or None without one. It sees failed runs as they
+    are: deciding how they count is the task's. Its own failure is reported, never raised into the run."""
+    if aggregate is None:
+        return None
+    try:
+        value = aggregate([dict(r) for r in records])
+        if not isinstance(value, dict):
+            raise TypeError(f"aggregate returned {type(value).__name__}, not dict")
+        return value
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
 
 
 def output_record(output: RunOutput) -> dict:

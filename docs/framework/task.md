@@ -66,6 +66,25 @@ The scoring function decides what feedback to reveal. Reference answers placed i
 learner. The numeric score can be task-specific; the current `eval` report counts a task as solved at least once
 when any repeated score is at least `1.0`.
 
+### Several metrics and a task-level aggregate
+
+Some objectives are not a mean of per-task scores: a defense, for example, is measured by utility on benign tasks
+and attack success on injected tasks, with separate denominators, and their difference. Such a judge still returns
+`score` (the Trainer's mean and `eval`'s report use it unchanged) and may add named per-task values in `metrics`.
+A judge's dict form passes them under a `metrics` key.
+
+The judge file can also define an aggregate, named by `judge.aggregate`:
+
+```python
+def summary(records: list[dict]) -> dict: ...
+```
+
+It receives run records (`id`, `input`, `status`, `output`, `judge` with its `metrics`, ...), failed runs
+included with `status` other than `ok` and empty `metrics`, so the task decides how failures count. Its result
+appears as `metrics` in the step's learning-material `summary.json` and `index.jsonl`, the step record in
+`steps.jsonl`, the `run_agent` tool's result and `hermit eval`'s `summary.json`. An aggregate that raises is
+reported as `{"error": ...}` in those places; it never stops a run. Without `judge.aggregate` nothing changes.
+
 ## Built-in agents
 
 A task whose acting agent is a tool-calling model, or a coding-agent CLI, names a built-in agent as its pipeline
@@ -184,7 +203,8 @@ judge:
 ```
 
 Paths are relative to the config file. `agent.name` includes the class or function name; `judge.path` names the file
-or module and `judge.name` names the function (default `score`). `agent.params` is the agent's to read.
+or module and `judge.name` names the function (default `score`); the optional `judge.aggregate` names a function in
+the same file or module. `agent.params` is the agent's to read.
 
 Run the [offline example](trainer.md#minimal-example) to exercise these interfaces. For a real model and document
 environment, see [OfficeQA](../recipes/officeqa.md).

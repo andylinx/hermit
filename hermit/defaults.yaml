@@ -20,6 +20,7 @@ pipeline:                     # the older spelling of `agent`: run -> name
 judge:
   path: null
   name: score
+  aggregate: null             # optional: a function in the judge's file, records -> task-level metrics
 template: null
 start_from: null
 evolver:

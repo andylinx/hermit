@@ -40,6 +40,7 @@ guarantee that their consumer supports arbitrary fields.
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
 | `judge.path` | file/module / null; required | Module containing the scoring callable |
 | `judge.name` | string / `score` | Callable accepting `(task, RunOutput)` |
+| `judge.aggregate` | string / null | Optional callable in the same module: run records → dict of task-level metrics |
 
 Split ids must exist in the task data. Use disjoint train/validation/test splits; `check` reports overlaps.
 Task row fields become training material, so private labels require judge-owned storage.

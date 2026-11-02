@@ -39,7 +39,7 @@ from hermit.llm import ChatClient
 from hermit.isolate import HOME_SECRETS, ToolRunner, agent_pipeline, profile
 from hermit.sandbox import AllowlistProxy, Sandbox, network_mode
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData, load_aggregate, load_callable, summarise
 from hermit.tools import FunctionTool, ToolServer, assemble
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -140,6 +140,7 @@ class Trainer:
             else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+        self.aggregate = load_aggregate(d["judge"], config.base)
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
@@ -384,11 +385,13 @@ class Trainer:
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
             # A training task's run also names its log (the trajectory, when the pipeline keeps one).
-            return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {}) for r in results]}
+            out = {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
+                               | ({"log": r["log"]} if r["id"] in allowed["train"] else {}) for r in results]}
+            metrics = summarise(results, self.aggregate)
+            return out | ({"metrics": metrics} if metrics is not None else {})
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
-                            "tasks through the task's pipeline and judge; returns outputs and scores, and for "
-                            "training tasks the path of each run's log. Its cost counts toward the run's budget.",
+                            "tasks through the task's pipeline and judge; returns outputs and scores (with the task's aggregate "
+                            "metrics when it defines them), and for training tasks the path of each run's log. Its cost counts toward the run's budget.",
                             run_agent, source="run",
                             input_schema={"type": "object", "required": ["task_ids"], "additionalProperties": False,
                                           "properties": {"task_ids": {"type": "array", "items": {"type": "string"}},
@@ -457,7 +460,8 @@ class Trainer:
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit
         self._last_rollout_commit = parent
         # 3. material.
-        self.material.write(n, progress.epoch, parent, changed_since_last, results, feedback)
+        self.material.write(n, progress.epoch, parent, changed_since_last, results, feedback,
+                            metrics=summarise(results, self.aggregate))
         return self._evolve("step", progress, parent, chunk, results, rollout_s, session)
 
     def _bootstrap(self) -> dict:
@@ -521,6 +525,7 @@ class Trainer:
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
         record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
                   "rollout": {"mean_score": _mean([r["judge"]["score"] for r in results]),
+                              **({"metrics": summarise(results, self.aggregate)} if self.aggregate and results else {}),
                               "scores": {r["id"]: r["judge"]["score"] for r in results},
                               "cost_usd": _sum([r["cost_usd"] for r in results]),
                               "unknown_cost_tasks": sum(1 for r in results if r["cost_usd"] is None),

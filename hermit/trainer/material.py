@@ -16,7 +16,8 @@ from the previous step's.
 
 Each step directory:
 
-- `summary.json` — step, epoch, the adapter commit the rollouts used, task ids, mean score, cost, time.
+- `summary.json` — step, epoch, the adapter commit the rollouts used, task ids, mean score, cost, time, and
+  `metrics` when the task's judge defines an aggregate (task-level values such as several rates).
 - `tasks/<task id>.json` — for each task: `input` (the task as given to the pipeline), `output` (what the agent
   produced), `judge` (everything the judge returned: score, feedback, anything else), `cost_usd` (null = unknown),
   `wall_s`, `api_speed`, `tokens`, `status` (ok or error), `error`, `trajectory` (where the full trajectory is) and
@@ -38,7 +39,7 @@ class Material:
         return self.root / f"step_{step:04d}"
 
     def write(self, step: int, epoch: int, commit: str, changed: bool, results: list[dict],
-              check_feedback: list[dict] | None) -> Path:
+              check_feedback: list[dict] | None, metrics: dict | None = None) -> Path:
         d = self.step_dir(step)
         if d.exists():
             shutil.rmtree(d)
@@ -67,12 +68,15 @@ class Material:
                    "cost_usd": sum(costs) if costs else None,
                    "unknown_cost_tasks": sum(1 for r in results if r.get("cost_usd") is None),
                    "wall_s": max((r.get("wall_s") or 0) for r in results) if results else 0}
+        if metrics is not None:
+            summary["metrics"] = metrics
         (d / "summary.json").write_text(json.dumps(summary, indent=1))
         if check_feedback:
             (d / "check_feedback.json").write_text(json.dumps(check_feedback, indent=1))
         with open(self.root / "index.jsonl", "a") as index:
             index.write(json.dumps({k: summary[k] for k in ("step", "epoch", "mean_score", "cost_usd", "adapter_changed")}
-                                   | {"tasks": len(results)}) + "\n")
+                                   | {"tasks": len(results)} | ({"metrics": metrics} if metrics is not None else {}))
+                        + "\n")
         current = self.root / "current"
         if current.is_symlink() or current.exists():
             current.unlink()

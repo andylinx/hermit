@@ -4,6 +4,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Added
+
+- Multi-metric judges. `JudgeResult.metrics` holds named per-task values, and an optional `judge.aggregate`
+  function turns run records (failed runs included) into task-level metrics. They are recorded next to the
+  unchanged mean score in learning material, `steps.jsonl`, the `run_agent` result and `hermit eval`'s summary.
+  Judges and configs without them behave as before.
+
 ### Changed
 
 - Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python
