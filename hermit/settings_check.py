@@ -14,7 +14,7 @@ from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
 from hermit.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData, load_aggregate, load_callable
 from hermit.trainer.rollout import run_one
 from hermit.trainer.trainer import needs_errors, warnings_for
 
@@ -39,7 +39,15 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         start = config.path(d["start_from"]) if d.get("start_from") else template_dir
         problems = []
         if start is not None and (start / MANIFEST).is_file():
-            result = check_spec(start, template_dir)
+            # Match Trainer's explicit sandbox setting, restoring the process
+            # default afterwards so checking one config cannot affect another.
+            from hermit import spec as spec_module
+            previous = spec_module.SANDBOX_ENFORCE
+            spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
+            try:
+                result = check_spec(start, template_dir)
+            finally:
+                spec_module.SANDBOX_ENFORCE = previous
             problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
         report("template", problems, f"{read_manifest(template_dir)['template']}")
     except Exception as exc:
@@ -94,6 +102,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         sandboxed = profile(d["sandbox"], "check")["enabled"]
         pipeline = True if sandboxed else load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+        load_aggregate(d["judge"], config.base)
     except Exception as exc:
         problems.append(f"agent/judge: {exc}")
         pipeline = judge = None

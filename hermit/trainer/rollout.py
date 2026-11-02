@@ -20,17 +20,24 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
     except Exception as exc:
+        # A metered pipeline can retain usage and its diagnostic artifact even
+        # when no successful RunOutput exists. Missing usage remains unknown.
+        tokens = getattr(exc, "tokens", None)
+        cost = getattr(exc, "cost_usd", None)
+        failure_log = getattr(exc, "log", None)
+        tokens = tokens if type(tokens) is int and tokens >= 0 else None
+        cost = cost if type(cost) in (int, float) and cost >= 0 else None
         return {"id": task["id"], "input": task, "status": "error", "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc()[-3000:], "output": None,
-                "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}"},
-                "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
-                "log": None, "messages": None}
+                "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}", "metrics": {}},
+                "cost_usd": cost, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": tokens,
+                "log": str(failure_log) if failure_log else None, "messages": None}
     try:
         verdict = normalise_judge(judge(dict(task), out))
         judged = asdict(verdict)
         status, error = "ok", None
     except Exception as exc:
-        judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}"}
+        judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}", "metrics": {}}
         status, error = "judge_error", f"{type(exc).__name__}: {exc}"
     return {"id": task["id"], "input": task, "status": status, "error": error, "output": out.output,
             "judge": judged, "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),

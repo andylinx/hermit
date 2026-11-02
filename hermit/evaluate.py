@@ -9,7 +9,7 @@ import time
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
 from hermit.isolate import agent_pipeline
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData, load_aggregate, load_callable, summarise
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree
@@ -23,6 +23,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     if not tests:
         raise SystemExit("eval needs data.test")
     judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+    aggregate = load_aggregate(d["judge"], config.base)
     run_name = config.run_name()
     run_dir = config.run_dir()
     from hermit.adapter.manifest import read_manifest
@@ -50,6 +51,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     t0 = time.time()
     per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}
     errors = 0                       # runs the pipeline or judge failed on (scored 0)
+    records: list[dict] = []         # every run, for the task's aggregate
     try:
         with open(out / "results.jsonl", "w") as f:
             for r in range(1, repeats + 1):
@@ -58,6 +60,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                                      budget=budget, part="rollout"):
                     per_task[rec["id"]].append(rec["judge"]["score"])
                     errors += rec["status"] != "ok"
+                    records.append({**rec, "repeat": r})
                     f.write(json.dumps({"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output",
                                         "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")}},
                                        default=str) + "\n")
@@ -70,6 +73,9 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                "solved_once": sum(1 for v in per_task.values() if any(s >= 1.0 for s in v)) / len(tests),
                "cost_usd": spent["usd"]["rollout"] if not spent["unknown_cost_calls"] else None,
                "unknown_cost_tasks": spent["unknown_cost_calls"], "errors": errors, "wall_s": round(time.time() - t0, 1)}
+    metrics = summarise(records, aggregate)
+    if metrics is not None:
+        summary["metrics"] = metrics
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     if adapter == "final":
         _update_card(Tree(tree_dir), run_name, run_dir, summary)

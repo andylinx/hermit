@@ -54,6 +54,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- Multi-metric judges. `JudgeResult.metrics` holds named per-task values, and an optional `judge.aggregate`
+  function turns run records (failed runs included) into task-level metrics. They are recorded next to the
+  unchanged mean score in learning material, `steps.jsonl`, the `run_agent` result and `hermit eval`'s summary.
+  Judges and configs without them behave as before.
 - The Base Agent API (`hermit.agent.base.interface`): `make(name, settings, model).run(prompt, workspace, tools,
   limits, session, roles) -> Result`, `configured(**settings)`, `Tool` and the tool server, and `Limits`, which a
   Base Agent enforces or refuses (`Unsupported`). The `react` agent's loop is the `react` Base Agent; the `codex` and
