@@ -73,6 +73,13 @@ and attack success on injected tasks, with separate denominators, and their diff
 `score` (the Trainer's mean and `eval`'s report use it unchanged) and may add named per-task values in `metrics`.
 A judge's dict form passes them under a `metrics` key.
 
+Existing single-score judges need no changes: numeric returns, dictionaries containing `score`, and
+`JudgeResult(score, feedback, extra)` remain supported. Scores retain their original scale, including negative
+values; `metrics` defaults to an empty dictionary in individual run records. Without `judge.aggregate`, step
+summaries, the `run_agent` response, and evaluation summaries keep their existing scalar scoring fields and do
+not add aggregate `metrics`. In dictionary returns, `metrics` is reserved for named metrics; other additional
+fields (such as `f1`) still go into `extra`.
+
 The judge file can also define an aggregate, named by `judge.aggregate`:
 
 ```python

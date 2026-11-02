@@ -93,12 +93,14 @@ def load(path, *overrides):
 
 def test_train_commits_tags_and_records(tmp_path):
     cfg = load(make_task(tmp_path))
+    assert cfg["judge"]["aggregate"] is None  # Old YAML omits the new option.
     summary = Trainer(cfg, log=lambda *_: None).train()
     run = tmp_path / "runs" / "toy-run"
     steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
     assert [s["step"] for s in steps] == [1, 2, 3, 4]                # 6 tasks / step 4 → 2 steps × 2 epochs
     assert steps[0]["rollout"]["mean_score"] == 0.0 and steps[0]["changed"]
     assert steps[1]["rollout"]["mean_score"] == 1.0                  # the learned adapter is used next step
+    assert all("metrics" not in s["rollout"] for s in steps)
     assert len(steps[1]["tasks"]) == 2                               # short last step
     assert not steps[2]["changed"]                                   # the same text again: no new commit
     tree = Path(summary["tree"])
@@ -111,6 +113,8 @@ def test_train_commits_tags_and_records(tmp_path):
     material = run / "learning_material"
     assert (material / "current").resolve().name == "step_0004"
     assert len((material / "index.jsonl").read_text().splitlines()) == 4
+    assert all("metrics" not in json.loads(line) for line in (material / "index.jsonl").read_text().splitlines())
+    assert "metrics" not in json.loads((material / "step_0001" / "summary.json").read_text())
     record = json.loads((material / "step_0001" / "tasks" / "t0.json").read_text())
     assert record["judge"]["score"] in (0.0, 1.0) and record["trajectory"]
     assert (run / "step_0001" / "output" / "report.md").exists()
@@ -187,6 +191,7 @@ def test_eval_final_root_none(tmp_path):
     Trainer(cfg, log=lambda *_: None).train()
     final = evaluate(cfg, "final", log=lambda *_: None)
     assert final["mean_score"] == 1.0 and final["tasks"] == 3
+    assert "metrics" not in final
     assert evaluate(cfg, "root", log=lambda *_: None)["mean_score"] == 0.0
     assert evaluate(cfg, "none", log=lambda *_: None)["mean_score"] == 0.0
     tree = tmp_path / "runs" / "trees" / "prompt-only"

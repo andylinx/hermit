@@ -197,7 +197,9 @@ def test_run_agent_names_logs_of_training_tasks_only(tmp_path):
         "    return RunOutput(output=answer, messages=messages, log=log, cost_usd=0.0, tokens=0)"))
     trainer = Trainer(config, log=lambda *_: None)
     trainer._prepare()
-    rows = trainer._run_agent_tool()(task_ids=["t00", "t08"], adapter=str(trainer.run_dir / "root"))["results"]
+    result = trainer._run_agent_tool()(task_ids=["t00", "t08"], adapter=str(trainer.run_dir / "root"))
+    assert "metrics" not in result
+    rows = result["results"]
     assert rows[0]["log"].endswith("t00.txt") and "log" not in rows[1]          # t00 trains, t08 validates
 
 
