@@ -92,6 +92,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   recipe. Each method's `run_codex_luna.yaml` / `stream_codex_luna.yaml` is its Flash-row config with the models
   changed; `docker/codex/Dockerfile.standalone` builds the image with a machine's standalone Codex;
   `harness2_stream/launch.sh` takes `CONFIG=run_codex_luna.yaml`. (Ported from PR #54 onto the agent layers.)
+- The EvoSafeHarness method: the `evosafe` Evolver and `evosafe` template search a defense bundle (`ADAPTER.md`
+  prompt + `defense.py` tool hooks) for a frozen victim with Designer, Criticizer and Analyzer roles (Claude Code,
+  Codex or the run's `llm`), full scoring on training cases and validation confirmation; documented in
+  `docs/methods/evosafe.md`. Its AgentDyn integration (`examples/agentdyn/utils/`, run configs in `examples/agentdyn/evosafe/`)
+  replays existing frozen benign and injected cases with the native judges. The roles run on the `claude` or
+  `codex` Base Agent and every AgentDyn model call on `direct`; the defense metrics are computed by the method
+  from run records (`examples/agentdyn/utils/report.py`). No core change.
 - The Base Agent API (`hermit.agent.base.interface`): `make(name, settings, model).run(prompt, workspace, tools,
   limits, session, roles) -> Result`, `configured(**settings)`, `Tool` and the tool server, and `Limits`, which a
   Base Agent enforces or refuses (`Unsupported`). The `react` agent's loop is the `react` Base Agent; the `codex` and
