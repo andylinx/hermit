@@ -70,6 +70,10 @@ methods/harness2
 methods/continual_harness
 methods/reharness
 methods/meta_harness_adapter
+methods/ace
+methods/ahe_adapter
+methods/rrsi_adapter
+methods/evosafe
 ```
 
 ```{toctree}
@@ -79,6 +83,7 @@ methods/meta_harness_adapter
 recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
+recipes/agentdyn
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration

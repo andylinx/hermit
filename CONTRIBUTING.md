@@ -65,6 +65,28 @@ pre-commit run --all-files
 
 The hooks check TOML, YAML, merge-conflict markers, and newly added large files. They do not reformat code.
 
+Do not commit generated training or evaluation data, per-task results, trajectories, logs, checkpoints, or per-run adapter snapshots. Keep these artifacts in ignored local directories. Include reproducible recipes, reusable configurations, and aggregate results in the documentation and PR description instead.
+
+## Suggested review workflow
+
+Contributors are encouraged to review their changes iteratively, both before opening a PR and after updating it.
+Existing validation and review requirements still apply.
+
+1. **Review the complete change.** Use the general and all applicable task-specific checklists. Inspect the
+   implementation, relevant callers, tests and documentation.
+2. **Verify findings before fixing them.** Confirm suspected problems against the current code. Fix actionable
+   issues, and explain concerns that are rejected or accepted as design tradeoffs.
+3. **Validate the fixes.** Run the affected checks and update documentation, experiment records and the PR
+   description where needed.
+4. **Review again when useful.** Repeat the review–fix–verify cycle while it continues to uncover actionable
+   issues. A fresh agent session can provide an independent perspective.
+5. **Continue after opening the PR.** Run the post-PR audit and repeat the cycle after substantive fixes or new
+   review feedback. Make clear which version each review covers.
+
+Use judgment to decide when the change is ready. A useful stopping point is when the latest review finds no new
+actionable issues, earlier findings have been addressed or explained, and remaining limitations are disclosed.
+There is no prescribed number of review rounds.
+
 ## Propose a Change
 
 For bugs, include a small reproducer, the framework version or commit, platform, and relevant configuration.
@@ -77,8 +99,8 @@ commands, and defaults consistent. Report external requirements and unverified p
 change there, and link it in the pull request. Pull requests without that discussion will be closed.
 
 A pull request that reproduces a published learning method follows
-[Reproduce a published method](docs/developer/reproducing-a-method.md) and answers the questions in its last
-section.
+[Reproduce a published method](docs/developer/reproducing-a-method.md) and completes the general and
+method-specific checklists linked from its PR section.
 
 Use the existing task, adapter, and Evolver interfaces where possible. For the contracts and extension examples,
 see [task integration](docs/tutorials/your-own-task.md), [adapter customization](docs/tutorials/customize-an-adapter.md),

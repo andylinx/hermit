@@ -383,6 +383,90 @@ acting sessions are containers of their own, as for the other Codex-harness meth
 `<run>/workspace/state/evolution_summary.jsonl` lists every candidate with its hypothesis, base and mean on the
 search set. The result is in [the Flash row](#the-flash-row).
 
+## ACE
+
+[ACE](https://arxiv.org/abs/2510.04618) (Zhang et al., ICLR 2026) grows a playbook of bullets with helpful and
+harmful counters, one training question at a time: the acting agent names the bullets it used, a Reflector tags
+them and diagnoses the attempt (a wrong answer is run again with the reflection, up to three rounds), and a Curator
+adds bullets ([ACE](../methods/ace.md) has its controls and its differences from the authors' code).
+`examples/officeqa/ace/` starts from SkillOpt's initial skill followed by an empty playbook (`make_seed.py` writes
+`seed_adapter/`) on the `ace` template, with `data.step_size: 1`, two epochs over the 50 training questions and
+validation at each epoch's end; `final` is the playbook with the best validation score.
+
+| Config | Epochs | `run_name` | The number |
+|---|---|---|---|
+| `ace/smoke_codex_luna.yaml` | 1 | `smoke-luna-ace` | none: a smoke, 4 training questions |
+| `ace/run_codex_luna.yaml` | 2 | `luna-ace` | `mean_score` in `ace/runs/luna-ace/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions on the machine's ChatGPT
+login, the Reflector and Curator one Codex session per call (`llm: {cli: codex}`). The run below is one training with its four
+evaluations, one pass each.
+
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.165.0`), four side by side.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
+  `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
+- Run: `run_codex_luna.yaml` of `527b130`, run `luna-ace`.
+- Spending: a subscription has no per-token price. Training 1.45 h: 18.5 M tokens of training sessions, 18.5 M of
+  Reflector, Curator, retry and validation sessions. Each evaluation about 15 min.
+
+| Adapter | accuracy | − the initial skill, points |
+|---|---|---|
+| none | 0.233 | −14.5 [−20.9, −8.1] |
+| the initial skill: SkillOpt's, with ACE's empty playbook (`seed_adapter`) | 0.378 | |
+| `final`, best validation (epoch 1, 79 bullets; [card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/ace/adapter/.hermit/CARD.md)) | 0.640 | **+26.2** [+18.6, +33.7] |
+| the last playbook (`workspace/state/last_adapter`, 106 bullets) | 0.593 | **+21.5** [+13.4, +29.7] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
+
+- `final` against the last playbook: +4.7 [−0.6, +10.5] points, 16 questions better and 8 worse. Validation scored
+  0.708 after both epochs, so the first is kept.
+- The agent names the bullets it used on one line of its final message: 81 of the 100 training samples named at
+  least one, 142 citations in all.
+
+## AHE Adapter
+
+[AHE](https://arxiv.org/abs/2604.25850) (Lin et al., 2026) evolves the acting agent's harness over iterations of k
+rollouts per task: an Agent Debugger reports on each task's traces, an Evolve Agent edits the harness and predicts what
+each change fixes, and the next iteration's rollouts judge every change ([AHE Adapter](../methods/ahe_adapter.md) has
+its controls and its differences from the authors' code). `examples/officeqa/ahe_adapter/` runs it on the `ahe`
+template, with Codex as the acting agent, from the seed harness with SkillOpt's initial skill in its system prompt (`make_seed.py` writes
+`seed_adapter/`): the 50 training questions as 100 trial rows (`make_rows.py`, k = 2), one step per iteration over all
+of them, ten iterations; with no validation split, `final` is the best-ever iteration by training pass rate.
+
+| Config | Steps | `run_name` | The number |
+|---|---|---|---|
+| `ahe_adapter/smoke_codex_luna.yaml` | 2 | `smoke-luna-ahe-adapter` | none: a smoke, 4 training questions × 2 |
+| `ahe_adapter/run_codex_luna.yaml` | 10 | `luna-ahe-adapter` | `mean_score` in `ahe_adapter/runs/luna-ahe-adapter/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions, the Agent Debugger and
+the Evolve Agent on the machine's ChatGPT login, the learners as sessions of the `codex` Base Agent in the run's
+sandbox. The run below is one training with two evaluations, one pass each.
+
+- Models: `gpt-5.6-luna` acting, debugging and evolving, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.164.0`), eight side by side, 3,600 s each; the
+  adapter's middleware as Codex hooks.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3` (validation unused), the training questions in order;
+  `officeqa_full.csv` with SHA-256 `b5eb1ce0cb34…`, eight items drifted from the split
+  ([Reproduction limits](#reproduction-limits)).
+- Run: `run_codex_luna.yaml` of `725b457`, run `luna-ahe-adapter`.
+- Spending: a subscription has no per-token price. Training 1.5 h: 190 M tokens of rollouts, 122 M of Debugger and
+  Evolve sessions. Evaluations 9 min (`final`) and 21 min (H_0).
+
+| Adapter | accuracy | − H_0, points |
+|---|---|---|
+| H_0: the seed harness with SkillOpt's initial skill (`seed_adapter`) | 0.366 | |
+| `final`, the best-ever iteration 7 (training pass@1 0.69) | 0.616 | **+25.0** [+16.9, +33.1] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
+
+- Against the column: GEPA +1.6 [−3.2, +6.4], Harness² +0.6 [−5.2, +6.4], SkillOpt **+7.0** [+1.7, +12.4] (GEPA's
+  and SkillOpt's four trainings averaged per question first). H_0 against the initial skill alone: +0.6 [−5.2, +6.4].
+- Answers longer than 40 characters fall from 30% to 0.6%; answers containing the right value anywhere rise from
+  0.558 to 0.616: most of the gain is the answer's form.
+- Training pass@1 by iteration: 0.42, 0.61, 0.65, 0.66, 0.64, 0.64, 0.69, 0.67, 0.63, 0.65; no change was judged
+  HARMFUL, so no automatic rollback ran.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
@@ -585,7 +669,11 @@ judge, the
 Evolvers' parameters, the session limits (SkillOpt's 180 s × 24 sessions for the trainings and the reference
 evaluations, 3,600 s for the streams), the configured concurrency, ReHarness's embedding model (Qwen3-Embedding-8B on
 Fireworks behind its launcher's wire meter: the plan serves no embeddings) and the one test pass are the Flash row's;
-Meta-Harness Adapter was not run. What differs:
+Meta-Harness Adapter was not run. RRSI Adapter ran later (`rrsi_adapter/run_luna.yaml` and `run_luna_eng.yaml`), on
+the agent layers: the framework's Codex agent with its deployment (`ADAPTER.md` in `AGENTS.md`, every other file under
+`hermit/rrsi-adapter/` and named there), the proposer and the search roles sessions of the `codex` Base Agent, behind
+an egress proxy that lets through chatgpt.com only (`agent.codex.container.proxy` and `sandbox.allow` on the command
+line). What differs:
 
 | Setting | The Flash row | With GPT-5.6-Luna |
 |---|---|---|
@@ -610,6 +698,7 @@ Codex on the plan.
 | Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.477** [0.401, 0.552] | one stream (the seed-0 order) |
 | ReHarness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.517** [0.442, 0.593] | one stream (the seed-0 order) |
 | Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.611** [0.535, 0.680] | one stream (seed 0); its reference execution of the initial skill: 0.390 [0.320, 0.465] |
+| RRSI Adapter, H_T | evolve on the 50 (two trials each) / test on 172 | **0.616** [0.552, 0.680] (sd 0.029) | 0.634, 0.640, 0.576, 0.616 (`rrsi_adapter/run_luna.yaml` at `859bda9` with `agent.concurrency=6`, ten rounds of two); one training with the engineering instance's selection weights (`run_luna_eng.yaml`) 0.622 [0.552, 0.698]; the starting adapter in this harness: 0.355 [0.285, 0.430]; before the Evolver's port onto the agent layers, 0.602 (four trainings), 0.616 (engineering weights) and 0.378 (the starting adapter) |
 
 Paired per question, 95% bootstrap intervals, a method's four runs averaged per question first; bold where the
 interval excludes zero; the Flash row's GLM intervals beside them:
@@ -628,6 +717,15 @@ interval excludes zero; the Flash row's GLM intervals beside them:
 | Continual Harness − Harness² deliverable | **−13.4** [−20.3, −6.4] | 9 / 32 | −1.7 [−7.6, +4.1] |
 | ReHarness − Harness² deliverable | **−9.3** [−15.7, −2.9] | 8 / 24 | |
 | ReHarness − Continual Harness | +4.1 [−2.3, +10.5] | 19 / 12 | |
+| RRSI Adapter − its starting adapter (same harness, same window) | **+26.2** [+20.1, +32.6] | 63 / 13 | |
+| RRSI Adapter, engineering weights − its starting adapter (same harness, same window) | **+26.7** [+19.8, +33.7] | 49 / 3 | |
+| RRSI Adapter − GEPA | +1.6 [−1.6, +4.8] | 32 / 27 | |
+| RRSI Adapter − SkillOpt | **+7.0** [+3.3, +10.6] | 45 / 17 | |
+| RRSI Adapter − Harness² deliverable | +0.6 [−4.2, +5.5] | 23 / 33 | |
+| RRSI Adapter − ReHarness | **+9.9** [+4.5, +15.6] | 37 / 26 | |
+| RRSI Adapter − Continual Harness | **+14.0** [+8.3, +19.6] | 43 / 20 | |
+| RRSI Adapter, engineering weights − RRSI Adapter | +0.6 [−4.2, +5.5] | 35 / 21 | |
+| RRSI Adapter − RRSI Adapter before the port | +1.5 [−1.9, +4.8] | 36 / 28 | |
 
 The differences against no skill and the initial skill are a little high: those two evaluations lost 4 and 3
 sessions to the login's rate limit (at most 2.3 and 1.7 points; by the cells' own rates about 0.7 and 0.6, by those
@@ -635,7 +733,10 @@ questions' scores in the other nine one-pass evaluations about 1.1 and 0.7). Con
 gains over the reference execution overlap GLM's intervals: they cannot be called larger than GLM's.
 
 - **Where the points go.** Every answer was checked one by one (2,408: 172 per cell, 688 for GEPA's and SkillOpt's
-  four trainings together) for whether its value is right and whether its form is the one the judge accepts:
+  four trainings together) for whether its value is right and whether its form is the one the judge accepts; RRSI
+  Adapter's runs before the port were checked afterwards on their 517 answers that are not exact matches (317
+  distinct), and its runs on the agent layers on their 440 (284 distinct; the 116 an earlier check had read, the same
+  answer to the same question, kept its verdict); an exact match has the right value in the accepted form:
 
   | Cell | exact match | right value, other form | wrong value | no answer (timed out) | right value |
   |---|---|---|---|---|---|
@@ -647,10 +748,15 @@ gains over the reference execution overlap GLM's intervals: they cannot be calle
   | ReHarness | 89 | 26 | 57 | 0 | 0.669 |
   | Harness², deliverable | 105 | 17 | 50 | 0 | 0.709 |
   | Harness², reference execution | 67 | 55 | 50 | 0 | 0.709 |
+  | RRSI Adapter, its starting adapter (same harness) | 61 | 56 | 55 | 0 | 0.680 |
+  | RRSI Adapter, four trainings | 424 | 66 | 197 | 1 (the model's output limit, not a timeout) | 0.712 |
+  | RRSI Adapter, engineering weights | 107 | 16 | 49 | 0 | 0.715 |
 
   Paired on the value alone, GEPA − initial skill is −0.9 [−5.7, +3.8], SkillOpt − initial skill −2.8 [−7.7, +2.0],
   Harness² − its reference execution 0.0 [−4.7, +4.7], Continual Harness − the reference execution −2.3 [−7.6, +2.9]
-  and ReHarness − the reference execution −4.1 [−9.9, +1.7]: the learned adapters turn "right value, other form" into
+  and ReHarness − the reference execution −4.1 [−9.9, +1.7], RRSI Adapter (four trainings) − its starting adapter
+  +3.2 [−0.1, +6.7] (before the port, +0.7 [−3.5, +4.9]; checked the same way, answer by answer, after the column):
+  the learned adapters turn "right value, other form" into
   exact matches and little else. Two automatic readings (the reference answer at the start of the answer; anywhere in
   it) never pass a wrong answer but miss many right values (a `%` the reference answer has or lacks, 109 answers;
   list separators 23; a final period 22; trailing zeros 20; a U+2212 minus sign in the reference answer 17), hence
@@ -704,11 +810,14 @@ gains over the reference execution overlap GLM's intervals: they cannot be calle
 ## Included adapters
 
 `examples/officeqa/gepa/adapter/` and `examples/officeqa/skillopt/adapter/` are the skills `gepa/run.yaml` and
-`skillopt/run.yaml` trained in direct chat. Evaluate them with a directory selector:
+`skillopt/run.yaml` trained in direct chat. `examples/officeqa/ace/adapter/` is the `final` playbook of
+`ace/run_codex_luna.yaml`'s measured run ([ACE](#ace)), its card with the run's settings and test score. Evaluate them with a
+directory selector:
 
 ```bash
 hermit eval --config examples/officeqa/gepa/run.yaml --adapter adapter
 hermit eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
+hermit eval --config examples/officeqa/ace/run_codex_luna.yaml --adapter adapter
 ```
 
 Numbers they copied from training answers are replaced by made-up numbers of the same form, so their cards' scores

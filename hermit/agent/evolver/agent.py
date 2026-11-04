@@ -19,7 +19,8 @@ AgentEvolver params:
   tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. With a list, the
          task message names no endpoint URL either
   hide: paths the agent must not read although the sandbox shows their parents, besides the framework's examples,
-        tests, docs and .git; "module:<name>" hides an installed package. null: nothing is hidden
+        tests, docs and .git; "module:<name>" hides an installed package. null: nothing is hidden. The run's own
+        places (its workspace areas, the task information) stay visible below a hidden directory
   web_search: the CLI's web search, true or false
 This is Layer 3 over the `codex` or `claude` Base Agent (docs/framework/agent-layers.md): it fills the prompt, picks
 the Trainer's tools and the paths to hide, and resumes the last session; the Base Agent runs the CLI in the run's
@@ -135,7 +136,8 @@ class CommandEvolver(Evolver):
 
     The program gets HA_CONTEXT (a JSON file with the workspace paths, accesses, progress, message, params) and
     HA_TOOL_URL (the tool endpoint: GET /tools, POST /call/<name>). It changes the adapter directory and may write
-    output/step_result.json: {status, summary, rationale, session, usage: [Usage fields...]}.
+    output/step_result.json: {status, summary, rationale, session, usage: [Usage fields...], next_tasks}
+    (next_tasks is taken from a subclass that sets chooses_tasks = True).
     """
     supports_resume = True
 
@@ -143,7 +145,9 @@ class CommandEvolver(Evolver):
         info = {"workspace": {k: str(v) for k, v in ctx.workspace.__dict__.items()},
                 "access": {"validation": str(ctx.access.validation) if ctx.access.validation else None,
                            "environment": [str(p) for p in ctx.access.environment]},
-                "progress": ctx.progress.__dict__ if ctx.progress else None, "session": ctx.session,
+                "progress": ({k: v for k, v in ctx.progress.__dict__.items()
+                              if k != "remaining" or self.chooses_tasks} if ctx.progress else None),
+                "session": ctx.session,
                 "message": ctx.message, "params": {k: v for k, v in ctx.params.items() if k not in ("command", "env")}}
         path = ctx.workspace.scratch / "context.json"
         path.write_text(json.dumps(info, indent=1))
@@ -159,5 +163,6 @@ class CommandEvolver(Evolver):
             data = json.loads(result_file.read_text())
             usage = [Usage(**u) for u in data.get("usage", [])]
             return StepResult(data.get("status", "done" if code == 0 else "failed"), data.get("summary", ""),
-                              data.get("rationale", ""), data.get("session"), usage, data.get("extra", {}))
+                              data.get("rationale", ""), data.get("session"), usage, data.get("extra", {}),
+                              data.get("next_tasks"))
         return StepResult("done" if code == 0 else "failed", f"command exited with {code}")

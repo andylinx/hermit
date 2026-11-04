@@ -72,6 +72,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- An Evolver can choose the next step's tasks: one that sets `chooses_tasks = True` is given the epoch's training
+  tasks still to run (`Progress.remaining`, also listed in the call's message) and names the next step's in
+  `StepResult.next_tasks` (an external program in `output/step_result.json`). An epoch still runs every training task
+  once; a request outside that is refused and recorded, and the next step takes the Trainer's order, which stays the
+  default. Other Evolvers see nothing ahead and get the same steps and messages as before. Every step record now
+  carries `epoch_end`, which the epoch checkpoint follows, and, when a choice was made, `next_tasks` or
+  `next_tasks_refused` and `chosen_by`.
 - A ChatGPT login's plan, for every Codex session on it (`hermit/agent/base/login.py`): files under
   `~/.cache/hermit/codex-login/plan/` pause new sessions (`PAUSE`), hold them past a usage threshold (`MAX_USED`) and
   cap the sessions at once on the machine (`SLOTS`); each session's report of the plan's usage is kept (`plan.json`);
@@ -92,6 +99,17 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   recipe. Each method's `run_codex_luna.yaml` / `stream_codex_luna.yaml` is its Flash-row config with the models
   changed; `docker/codex/Dockerfile.standalone` builds the image with a machine's standalone Codex;
   `harness2_stream/launch.sh` takes `CONFIG=run_codex_luna.yaml`. (Ported from PR #54 onto the agent layers.)
+- The EvoSafeHarness method: the `evosafe` Evolver and `evosafe` template search a defense bundle (`ADAPTER.md`
+  prompt + `defense.py` tool hooks) for a frozen victim with Designer, Criticizer and Analyzer roles (Claude Code,
+  Codex or the run's `llm`), full scoring on training cases and optional validation confirmation; documented in
+  `docs/methods/evosafe.md`. Its AgentDyn integration (`examples/agentdyn/utils/`, run configs in `examples/agentdyn/evosafe/`)
+  replays existing frozen benign and injected cases with the native judges. The roles run on the `claude` or
+  `codex` Base Agent and every AgentDyn model call on `direct`; the defense metrics are computed by the method
+  from run records (`examples/agentdyn/utils/report.py`). Role search gives the Designer explicit UTF-8 file budgets
+  (`defense.py` 32,000 bytes by default, capped by the template), repairs specification failures before a review,
+  and gives each candidate at most three Criticizer calls, then a final Designer repair that is evaluated once the
+  hard checks pass; such an unapproved final revision is disclosed, and the promotion gates are unchanged. No core
+  change.
 - The Base Agent API (`hermit.agent.base.interface`): `make(name, settings, model).run(prompt, workspace, tools,
   limits, session, roles) -> Result`, `configured(**settings)`, `Tool` and the tool server, and `Limits`, which a
   Base Agent enforces or refuses (`Unsupported`). The `react` agent's loop is the `react` Base Agent; the `codex` and
@@ -128,6 +146,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   steps. SkillOpt builds its Codex trace summary from them and GEPA a text of them; ReHarness and Continual Harness
   read them instead of parsing Codex's stream each on its own.
 
+- The AHE Adapter method (Lin et al., arXiv:2604.25850): the `ahe_adapter` Evolver, AHE's iteration of k rollouts
+  per task, the attribution of the Evolve Agent's change manifest at the next iteration and the file-wise rollback of
+  HARMFUL changes, with the Agent Debugger and the Evolve Agent as sessions of the `codex` Base Agent and upstream's
+  queries and attribution rules verbatim; documented in `docs/methods/ahe_adapter.md`.
+- The `ahe` adapter template: a system prompt, scripts, a middleware module run as the host's hooks by a fixed hook
+  runner, skills, sub-agents and a long-term memory, the same files for Codex and Claude Code; each host's hook
+  wire and what it can and cannot do are the template's `hook_hosts.py`, and the template check deploys a copy to
+  both hosts and runs every hook as the host runs it.
+- AHE Adapter on OfficeQA: `examples/officeqa/ahe_adapter/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`).
+- The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
+  Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,
+  ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an
+  acting agent); the Reflector and Curator run through the run's `llm` tool; documented in `docs/methods/ace.md`.
+- The `ace` adapter template: an `ADAPTER.md` whose playbook section holds the bullets, after the skill.
+- ACE on OfficeQA: `examples/officeqa/ace/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`). The run's `final` playbook is included as `examples/officeqa/ace/adapter/`, with its card.
 - The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
   stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
   through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict
@@ -159,12 +192,29 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Meta-Harness Adapter on OfficeQA: `examples/officeqa/meta_harness_adapter/` (the Flash row, six rounds of two
   candidates), with the Codex agent's `deploy: files`, which deploys `ADAPTER.md` as the session's `AGENTS.md`
   and every other adapter file at the same path in the workspace.
+- The RRSI Adapter method: RRSI (Xia et al., arXiv:2609.24972), regularized recursive self-improvement, on the
+  Trainer with the harness confined to the adapter (the acting agent is fixed). The `rrsi_adapter` Evolver evaluates
+  one candidate per step on the evolve set (k rows per task) and leaves every other decision to upstream's code at a
+  pinned commit (the `rrsi` dependency group): the annealed edit budget, the edit history, exploration and pruning,
+  the analyst and its digesters, the leakage critic, delta's calibration, the noise-adjusted floor,
+  the cost rule and the selection. The proposer is a session of the `codex` or `claude` Base Agent, what it must not
+  see the call's `Limits.hidden`; the analyst, its digesters and the critic are sessions of the `codex` Base Agent,
+  one per call.
+  Documented in `docs/methods/rrsi_adapter.md`.
+- The `rrsi-adapter` adapter template: every file outside `.hermit/` is learnable; `.hermit/EVOLVER.md` names RRSI's
+  component vocabulary and what each component's edit must show in the diff.
+- RRSI Adapter on OfficeQA: `examples/officeqa/rrsi_adapter/` (the GPT-5.6-Luna column: ten rounds of two candidates,
+  each training question twice), made on the agent layers (four trainings: 0.616 on the 172 test questions).
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.
 
 ### Changed
 
+- `run_agent`'s results also say how a session ended when the pipeline reports it (`exit_code`, `timed_out`: the
+  Codex and Claude Code agents do).
+- The `codex` and `claude` Base Agents take `plan_rerun: false`: a session a ChatGPT plan refused before it finished
+  a turn is returned (`extra["refused"]`) instead of run again in the same workspace.
 - Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python
   3.12 and 3.13 only, so `--group all` failed on Python 3.11.
 - The optional Evolvers' dependencies are dependency groups in `pyproject.toml` (`gepa`, `skillopt`, `harness2`,
@@ -184,6 +234,44 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
+  client kept the connection for its next request and got a dropped connection instead of the answer, now and then
+  (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
+- The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
+  there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
+  `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the
+  reply, and a linked stream as the session's events; before the next session in a kept home, its config, the
+  sign-in copy and the login's temporary copy were written through links left there; a rollout's login copies were
+  taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, a usage
+  ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total,
+  and a login for another ChatGPT account than the shared copy names is never taken back. The stream is read back
+  only from the file the Base Agent opened for it, through no link a session left on the way; the caller's own paths
+  (`log`, `stderr_log`: a device, a pipe, a link) are opened as they are. Harness²'s channel reads its session's stream and stderr file the same way.
+- `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
+  outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
+  read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
+  result says `extra["refused"]` (never for a session that was served).
+- A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a place the
+  sandbox shows under a link's name (a workspace reached through a link, a venv under a linked cache) left it
+  visible there; and hiding the framework's `examples/` covered a run kept below it, workspace and all. A hidden path
+  is now covered under every name the sandbox shows it by, and the places the session is given (its writable and
+  readable paths, the task description) are bound back on top of a covered directory, shallowest first and under
+  each of their names, with what is hidden below them (a hidden path, the sandbox's masks) covered again after them
+  (`hermit/sandbox.py`, `HidingSandbox`). A place the call gives (its `readable`, kept visible past `hidden` as
+  documented, and its writable paths) or keeps stays visible when it is also hidden; one only the sandbox gives
+  stays hidden. A path reached through a link inside a place the session can write has what it leads to covered
+  only inside a place the session is given, never a place itself, the system, the interpreter or the sandbox's own
+  files: a session that can write where a method hides every entry cannot choose what the next call loses or stop
+  it from starting.
+- The sandbox read `pyvenv.cfg` in the places a session can write and showed the installation its `home` named in
+  the session's next call: a session could have any directory of the host shown read-only. Only places shown
+  read-only are read now (a venv made inside the sandbox is made from an installation it shows already).
+- The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
+- Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
+  result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's
+  `agent/codex.txt`) gave no steps.
+- A chat call through `llm: {cli: ...}` left its Codex event stream as a file in the temporary directory; the
+  Trainer keeps it under the run's `llm_sessions/`, and a call without a log directory removes it.
 - A CLI call without a `home` setting gets a fresh home under `$HERMIT_HOMES` (default `~/.cache/hermit/homes`), not
   in the temporary directory: Codex makes no helper programs for its sandbox in a home there, and no command of such
   a session ran.
