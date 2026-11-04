@@ -48,7 +48,7 @@ def reported_models(run):
 
 
 
-def validate_training(run, expected_proposals=None):
+def validate_training(run, expected_proposals=None, method='evosafe'):
     """A successful CLI exit is insufficient: role failures can preserve the parent."""
     paths = sorted(run.glob('step_*/output/selection.json'))
     if not paths:
@@ -72,6 +72,15 @@ def validate_training(run, expected_proposals=None):
                 or selection.get('stop_reason') == 'cancelled'):
             raise RuntimeError('search failed; inspect selection.json before spending on test evaluation')
         trials = selection.get('trials', [])
+        if method == 'she':
+            if selection.get('reason') == 'no diagnosed training failures':
+                continue
+            if not selection.get('check', {}).get('passed'):
+                raise RuntimeError('SHE candidate did not pass its specification check')
+            if not all(selection.get(k) for k in ('parent', 'candidate', 'eval_task_ids')):
+                raise RuntimeError('SHE candidate has no complete paired validation')
+            reviewed += 1
+            continue
         if expected_proposals is not None and len(trials) != expected_proposals:
             raise RuntimeError('search did not complete the configured proposal budget')
         for trial in trials:
@@ -98,7 +107,7 @@ def validate_training(run, expected_proposals=None):
                     r.get('approved') and not r.get('required_changes') for r in independent) and not bounded_admission:
                 raise RuntimeError('a promoted candidate has no approving independent review')
             reviewed += len(independent)
-    if not reviewed:
+    if not reviewed and method != 'she':
         raise RuntimeError('no candidate received independent review')
     return {'reviewed_candidates_or_revisions': reviewed, 'static_rejections': static_rejections,
             'final_revisions_without_approval': final_revisions_without_approval,
@@ -272,7 +281,7 @@ def run_measured(path, config, snapshot_metadata=None):
         save()
         shutil.copy2(path, artifacts / 'effective-config.yaml')
         shutil.copy2(snapshot_metadata['original_config'] if snapshot_metadata else path, artifacts / 'run.yaml')
-        for package in ('agentdojo', 'hermit-harness', 'mcp', 'pydantic'):
+        for package in ('agentdojo', 'hermit-harness', 'mcp', 'pydantic', 'she-safety-harness-evolution'):
             try:
                 manifest['packages'][package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
@@ -300,9 +309,16 @@ def run_measured(path, config, snapshot_metadata=None):
         save()
         # Fail before provider spend if the execution boundary is unavailable.
         from isolated_hooks import IsolatedDefense
-        hook = IsolatedDefense(config.template_dir(), image=manifest['hook_image'])
+        hook_runtime = config.data['agent']['params'].get('hook_runtime', 'evosafe')
+        hook = IsolatedDefense(config.template_dir(), image=manifest['hook_image'], runtime=hook_runtime)
         try:
-            assert hook.system_prompt_transform('preflight') == 'preflight'
+            transformed = hook.system_prompt_transform('preflight')
+            assert 'preflight' in transformed
+            if hook_runtime == 'she':
+                assert 'SHE Runtime Harness' in transformed
+                assert hook.prepare_query('Read one public item')
+                assert hook.finalize_response('Ready') == 'Ready'
+                assert hook.export_state()['she_revision']
         finally:
             hook.close()
         execute([sys.executable, str(Path(__file__).with_name('experiment_runtime.py')), str(path)], 'entry-check')
@@ -313,7 +329,8 @@ def run_measured(path, config, snapshot_metadata=None):
         execute([sys.executable, '-m', 'hermit', 'train', '--config', str(path)], 'train')
         export_training_records(run, artifacts)
         manifest['training_audit'] = validate_training(
-            run, expected_proposals=int(config.data['evolver']['params'].get('max_proposals', 2)))
+            run, expected_proposals=int(config.data['evolver']['params'].get('max_proposals', 2)),
+            method=config.data['evolver']['name'])
         save()
         runs = {}
         tasks = read_rows(config.path(config.data['data']['tasks']))

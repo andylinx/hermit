@@ -1,0 +1,53 @@
+data:
+  tasks: ../utils/data/all-groups-v1/tasks.jsonl
+  train: ../utils/data/all-groups-v1/train.txt
+  val: ../utils/data/all-groups-v1/val.txt
+  test: ../utils/data/all-groups-v1/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/task-info
+template: she@1.0
+agent:
+  name: ../utils/bridge.py:run
+  concurrency: 12
+  timeout_min: 15
+  params:
+    benchmark_version: v1.2.2
+    max_iters: 25
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 4
+    logs: runs/she-codex-episodes
+    hook_runtime: she
+    episode_timeout_s: 900
+  base: direct
+  model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5
+judge:
+  path: ../utils/judge.py
+evolver:
+  name: she
+  params:
+    debugger: llm
+    claude_timeout_s: 1500
+    max_updated_artifacts: 1
+    min_clean_utility: 0.0
+    min_improvement: 0.0
+  base: codex
+  codex:
+    isolation: none
+    codex_sandbox: read-only
+    timeout_s: 1500
+    args:
+    - -c
+    - approval_policy="on-request"
+sandbox:
+  enabled: false
+trainer:
+  run_name: nemotron-agentdyn-she-codex-20261106
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 480
+  budget:
+    hours: 12
+  tree_dir: runs/trees/she-codex-20261106

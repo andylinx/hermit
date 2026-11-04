@@ -222,6 +222,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     from isolated_hooks import IsolatedDefense
     defense = IsolatedDefense(adapter, image=params.get("hook_image", "python:3.12-slim"),
                               timeout=params.get("hook_timeout_s", 90),
+                              runtime=params.get("hook_runtime", "evosafe"),
                               name=params.get("_hook_container")) if adapter is not None else None
     logs = (base / params.get("logs", "runs/agentdyn-episodes")).resolve()
     if adapter is not None and logs.is_relative_to(adapter.resolve()):
@@ -278,6 +279,12 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     original_query = pipeline.query
 
     def capture(*args, **kwargs):
+        prepare_query = getattr(defense, "prepare_query", None)
+        if callable(prepare_query):
+            if args:
+                args = (invoke(prepare_query, args[0]), *args[1:])
+            else:
+                kwargs["query"] = invoke(prepare_query, kwargs["query"])
         result = original_query(*args, **kwargs)
         captured[:] = result[3]
         # Native suites retry a missing terminal answer up to three times on the
@@ -286,6 +293,18 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         if (not captured or captured[-1].get("role") != "assistant" or captured[-1].get("tool_calls")
                 or not captured[-1].get("content")):
             raise RuntimeError("episode did not produce a terminal assistant response")
+        finalize = getattr(defense, "finalize_response", None)
+        if callable(finalize):
+            from agentdojo.types import text_content_block_from_string
+            content = captured[-1]["content"]
+            text = content if isinstance(content, str) else "\n".join(
+                block["content"] for block in content if block.get("type") == "text")
+            revised = invoke(finalize, text)
+            if not isinstance(revised, str) or not revised:
+                raise TypeError("finalize_response must return nonempty str")
+            if revised != text:
+                captured[-1]["content"] = (revised if isinstance(content, str)
+                                             else [text_content_block_from_string(revised)])
         return result
 
     pipeline.query = capture
@@ -308,7 +327,11 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         failure = None
     finally:
         if defense is not None:
-            defense.close()
+            try:
+                if params.get("hook_runtime") == "she":
+                    (log / "defense-state.json").write_text(json.dumps(defense.export_state(), indent=2))
+            finally:
+                defense.close()
         if classifier is not None:
             classifier.close()
             (log / "auditor-usage.json").write_text(json.dumps(classifier.usage, indent=2))
@@ -341,7 +364,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     (log / "audit.json").write_text(json.dumps(audit, indent=2))
     digest = hashlib.sha256()
     if adapter is not None:
-        for name in ("ADAPTER.md", "defense.py"):
+        for name in ("ADAPTER.md", "defense.py", *getattr(defense, "artifact_paths", ())):
             digest.update(name.encode() + (adapter / name).read_bytes())
     provenance = {"reference_revision": AGENTDYN_REVISION, "model": params["model"],
                   "generation": {k: params[k] for k in ("max_tokens", "temperature", "top_p", "extra_body", "max_iters") if k in params},
