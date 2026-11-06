@@ -18,7 +18,7 @@ agent:
     temperature: 0.0
     request_timeout_s: 120
     max_retries: 4
-    logs: runs/she-codex-r2-episodes
+    logs: runs/she-codex-r3-episodes
     hook_runtime: she
     episode_timeout_s: 900
   base: direct
@@ -44,10 +44,10 @@ evolver:
 sandbox:
   enabled: false
 trainer:
-  run_name: nemotron-agentdyn-she-codex-20261106-r2
+  run_name: nemotron-agentdyn-she-codex-20261106-r3
   output_dir: runs
   epochs: 1
   call_timeout_min: 480
   budget:
     hours: 12
-  tree_dir: runs/trees/she-codex-20261106-r2
+  tree_dir: runs/trees/she-codex-20261106-r3

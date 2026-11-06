@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("she", reason="install the pinned she dependency group")
 
-from hermit.agent.evolver.methods.she.evolver import SHEEvolver, call_model, parse_object, training_records
+from hermit.agent.evolver.methods.she.evolver import SHEEvolver, call_model, diagnosis_schema, parse_object, training_records
 from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/utils"))
 from bridge import GuardedRuntime, _run_episode as run
@@ -233,6 +233,26 @@ def test_response_object_supports_upstream_fence(header):
 def test_response_object_rejects_non_object_or_mixed_prose(text):
     with pytest.raises(ValueError):
         parse_object(text)
+
+
+@pytest.mark.parametrize('provider', ['claude', 'codex'])
+def test_debugger_uses_native_structured_schema(tmp_path, monkeypatch, provider):
+    ctx, _ = context(tmp_path)
+    ctx.params['proposer'] = provider
+    module = 'claude_code' if provider == 'claude' else 'codex'
+    schema = diagnosis_schema({'train'})
+    messages = [{'role': 'user', 'content': 'Diagnose the failed task.'}]
+
+    def role(ctx, received, output_schema, name):
+        assert received == messages
+        assert output_schema == schema
+        entry = output_schema['properties']['diagnoses']['items']
+        assert entry['properties']['case_id']['enum'] == ['train']
+        assert entry['properties']['predicted_fix'] == {'type': 'string'}
+        return {'content': '{"diagnoses": []}'}, [], None
+
+    monkeypatch.setattr(f'hermit.agent.evolver.methods.evosafe.{module}.call_role', role)
+    assert call_model(ctx, messages, 'she-debugger', [], schema=schema) == '{"diagnoses": []}'
 
 
 def test_direct_backend_uses_shared_base_agent(tmp_path):

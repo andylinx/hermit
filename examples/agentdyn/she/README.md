@@ -154,3 +154,27 @@ python examples/agentdyn/utils/run_experiment.py \
 The runner freezes committed source, configuration and inputs, checks Docker and
 the learner, then runs training and all three held-out evaluations. Each invocation
 needs fresh run/tree paths. Raw records stay in ignored local run directories.
+
+### Validation on the rebased branch
+
+The branch was rebased onto `48cf908` (`origin/main` on 2026-11-06). The focused
+SHE and EvoSafe suite passed 228 tests, including real networkless Docker hook
+execution. After adding batching, shared Base Agent and upstream JSON-fence
+coverage, the SHE suite passed all 27 tests with `HERMIT_TEST_DOCKER=1`.
+The documentation build passed with warnings treated as errors, as did the
+offline check/train/eval walkthrough.
+
+The affected-suite run reported 795 passed, 60 skipped and 26 failed. All 26
+failures were reproduced individually on a clean archive of `48cf908`; this
+host denies the bubblewrap network/UID mapping needed by those sandbox and
+deployment tests. These checks do not establish working bubblewrap isolation
+on this host.
+
+The first model-backed run, `nemotron-agentdyn-she-codex-20261106` at `fb26c36`,
+completed all 57 training attempts with 3 episode errors. Its third debugger
+response contained valid JSON inside the upstream `SAFETY_AXES_JSON` fence;
+the integration's plain-JSON decoder rejected it. Training preserved the seed,
+and the experiment audit stopped before validation/test. Its local records
+remain unchanged. Revision `5e55c77` accepts a single complete JSON fence and
+rejects mixed prose or multiple blocks; it also covers the actual failed
+response. The second run uses fresh run and tree paths with suffix `-r2`.

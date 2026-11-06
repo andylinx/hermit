@@ -38,7 +38,7 @@ manifests, patch validation and trajectory-diff functions.
 | Learned object | Four safety artifacts | Same carriers and seed; Python remains fixed |
 | Learning trigger | Evolution rounds | One patch per Trainer step; framework adaptation |
 | Evidence | SafetyBench trajectories and safety labels | Training-only native AgentDyn trajectories/verdicts; task adaptation |
-| Diagnosis | Per-case debugger and component routing | Upstream routing, then optional batched CLI diagnosis; execution adaptation |
+| Diagnosis | Per-case debugger and component routing | Upstream reasoning requirements and routing, with batched typed JSON replacing prose plus the separate axes block; execution adaptation |
 | Candidate edits | Bounded artifact operations | Upstream patcher, restricted to diagnosed owners and a file budget |
 | Selection | Safety/utility gates including clean UBR | Strict native ASR, clean utility and injected utility gate; AgentDyn has no UBR label |
 | Runtime judge | Pluggable semantic judge | Conservative deterministic fallback; uncertain calls are blocked |
