@@ -208,8 +208,8 @@ def check_entry(config_path):
     config = Config.load(Path(config_path))
     spec = find(config.data['evolver']['name'], config.base)
     evolver, params = instantiate(spec, config.data['evolver']['params'])
-    if spec.name != 'evosafe':
-        raise ValueError('this experiment runner requires the evosafe Evolver')
+    if spec.name not in ('evosafe', 'she'):
+        raise ValueError('this experiment runner requires an AgentDyn defense Evolver')
     if params.get('search_mode', 'single') == 'roles':
         from hermit.agent.evolver.methods.evosafe.roles import run, proposal_schema, REVIEW_SCHEMA, ANALYSIS_SCHEMA
         assert callable(run) and proposal_schema() and REVIEW_SCHEMA and ANALYSIS_SCHEMA
