@@ -75,3 +75,9 @@ the provider refused the patch-generation request. It retained the seed and
 performed no candidate validation. See the example's learning outcome and
 evaluation scope for the diagnostic held-out comparisons and the preserved
 failed runs; they do not establish successful SHE learning.
+
+A subsequent retry explicitly requested Daybreak Blue and successfully generated
+a statically valid tool-policy patch. Parent validation had four failed or
+missing verdicts out of 54, so the strict gate stopped before candidate
+validation. The unchanged final adapter reuses the earlier test results with
+explicit provenance; patch effectiveness remains unmeasured.

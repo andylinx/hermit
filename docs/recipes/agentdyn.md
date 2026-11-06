@@ -34,3 +34,8 @@ Rates use completed episodes; failed episodes are not successful defenses.
 All rows cover the same 54 held-out IDs. Seed/final differences are repeat
 variability, not adaptation. The example records frozen revision `a93ccca`,
 the reused training evidence, provider refusal, local artifacts and uncertainty.
+
+An explicit Daybreak Blue retry subsequently generated a valid candidate, but
+the parent validation had four failed or missing verdicts out of 54. No candidate
+was accepted or evaluated. The table remains the earlier completed test attempts
+for the unchanged adapters; it is not a fresh Daybreak test result.

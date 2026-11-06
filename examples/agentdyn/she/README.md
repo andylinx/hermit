@@ -254,3 +254,46 @@ Local records under `runs/nemotron-agentdyn-she-codex-20261106-r3/` include:
 
 These files are ignored local outputs, not published benchmark artifacts.
 The overall run status is `complete_with_errors` with `training_complete=false`.
+
+### Explicit Daybreak retry
+
+`run_nemotron_codex_daybreak.yaml` adds the documented per-turn CLI option
+`--cyber-access-program daybreak_blue` to the same `gpt-6-sol` learner, while
+retaining managed permissions. This option requests approved access; it does
+not grant account access. See the [official CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli).
+An explicit no-tool probe returned successfully, and the shared role preflight
+also passed. Exec JSONL does not expose a separate selected-program field.
+
+The retry `nemotron-agentdyn-she-codex-daybreak-20261106-r1` froze `af5ef91` and
+reused all 57 original training records, including errors. All eight diagnosis
+batches completed. **Patch generation succeeded this time**: the candidate
+appends one `after_tool` warning detector to `artifacts/tool_policy.json` for
+untrusted content that presents an unrelated action as a task prerequisite.
+It passed the static specification check and remained within the one-file budget.
+
+The parent then attempted all 54 validation cases. There were 50 valid native
+verdicts, three retained failure records and one case without a retained native
+verdict. The shared tool log truncates large results, so the audit was
+reconstructed from native result/task hashes and failure files; the exact error
+text for the missing verdict is unavailable. The diagnostic parent metrics are
+clean utility 6/18, ASR 8/32 and injected utility 14/32. These are **validation**
+metrics, not the held-out test row above. The complete-validation gate rejected
+the comparison (`evaluation has missing/failed episodes`); candidate validation
+never started, and the candidate was not accepted. This does not establish
+whether the generated patch helps or hurts.
+
+The final acting artifacts remained identical to the seed. After checking the
+acting configuration, runtime code, data and artifact hashes (excluding the
+non-runtime `.hermit/CARD.md` bookkeeping), the automatically started duplicate
+held-out replay was stopped. The completed `-r3` test results above are reused
+with explicit provenance; partial new test records are excluded. The driver's
+manifest preserves that interruption rather than claiming a fresh completed
+test run. `artifacts/outcome.json` records the completed learning attempt and
+its incomplete validation separately.
+
+Local retry artifacts include `candidate/`, `patch.json`, `selection.json`,
+`parent-validation-reconstructed.jsonl`, `parent-validation-report.json`,
+`daybreak-preflight.json`, `reuse-decision.json` and `reused-test/`. The review
+bundle includes their checksums. The metered search (diagnosis, proposal and
+parent validation) recorded 3,625,148 tokens; it excludes cached training and
+may omit interrupted duplicate-test usage. Dollar cost remains unknown.
