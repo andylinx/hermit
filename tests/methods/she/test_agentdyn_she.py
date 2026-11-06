@@ -129,6 +129,8 @@ def test_llm_debugger_routes_to_smallest_owner(tmp_path):
         nonlocal count
         count += 1
         if count == 1:
+            assert 'SAFETY_AXES_JSON' not in kwargs['messages'][0]['content']
+            assert 'predicted_fix (string)' in kwargs['messages'][0]['content']
             return {"content": json.dumps({"diagnoses": [{"case_id": "train", "primary_owner": "system_prompt",
                 "root_cause": "unnecessary refusal", "predicted_fix": "preserve benign utility", "safety_axes": {}}]})}
         return proposal(**kwargs)

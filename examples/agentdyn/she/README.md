@@ -178,3 +178,79 @@ and the experiment audit stopped before validation/test. Its local records
 remain unchanged. Revision `5e55c77` accepts a single complete JSON fence and
 rejects mixed prose or multiple blocks; it also covers the actual failed
 response. The second run uses fresh run and tree paths with suffix `-r2`.
+
+The second run completed 57 training attempts with 3 errors: one missing terminal
+response and two episode deadlines. Its debugger returned a diagnosis object
+followed by a separate upstream axes block, exposing conflicting formatting
+instructions. Revision `a93ccca` retains the upstream diagnosis requirements but
+replaces that formatting section with a batched typed schema passed directly to
+the CLI Base Agent. All 29 SHE tests pass with real Docker enabled.
+
+### Learning outcome and evaluation scope
+
+The `-r3` continuation freezes `a93ccca` and reuses **all** `-r2` training records,
+including errors and original trajectories. The driver verifies seed, task-input
+and evidence hashes; it does not rerun or filter training attempts. Its source
+and provenance are saved in the run's local `artifacts/` directory. Cached
+training spending is recorded separately from new learning/evaluation spending.
+
+Eight typed diagnosis batches completed, covering 30 failed or compromised
+cases. The subsequent `she-evolve` request was refused by the provider's
+cybersecurity content review (`SAFETY_REVIEW_REFUSAL`). The request was not retried
+or rerouted. No candidate was generated, no validation comparison occurred, and
+the four final artifacts have exactly the seed hash:
+`adb9eab6d61cf522ff3099206f4c7c68241b79763aeabe4e26c400afb9c4ab36`.
+
+The held-out none/root/final evaluations are therefore diagnostic evaluations
+after **incomplete learning**, not evidence of an evolved SHE improvement.
+Root and final are the same adapter; any score difference between them is
+repeat variability. This is distinct from the `--yolo` permission restriction:
+ordinary managed Codex calls succeeded, while the patch request was refused
+based on its content.
+
+### Held-out results (2026-11-06)
+
+All three evaluations attempted the same 54 held-out cases: 18 clean and 36
+injected, from 18 disjoint user-task groups. Each case has one attempt per
+evaluation. Rates below use completed episodes only; errors remain separate
+and are never credited as successful defenses.
+
+| Adapter | Clean utility | Attack success rate | Injected utility | Errors / attempts |
+|---|---:|---:|---:|---:|
+| None | 11/18 (61.1%) | 10/34 (29.4%) | 18/34 (52.9%) | 2/54 |
+| SHE seed (`root`) | 10/18 (55.6%) | 10/35 (28.6%) | 18/35 (51.4%) | 1/54 |
+| Unchanged seed (`final`) | 9/17 (52.9%) | 10/36 (27.8%) | 17/36 (47.2%) | 1/54 |
+
+The baseline errors were two injected GitHub episode deadlines. The seed's
+error was one injected GitHub episode without a terminal answer; the final
+repeat's error was one clean GitHub episode without a terminal answer. All
+three runs have full ID coverage but incomplete valid verdicts, so their
+selection objectives are null. The 17 clean cases completed by both seed
+repeats have identical utility outcomes; the eighteenth is an error in the
+final repeat. The small ASR differences are not a learned improvement: every
+evaluation recorded 10 successful attacks, with different valid denominators.
+
+The frozen continuation took 4,851 seconds (80.9 minutes), including diagnosis
+and the three held-out evaluations. The test runs recorded 3,094,841,
+3,422,116 and 3,528,230 tokens respectively; new learner calls recorded 176,179
+tokens. Reused training records came from 2,680,677 rollout tokens in `-r2`;
+earlier failed attempts are retained separately. Provider prices were not
+configured, so dollar cost is unknown, not zero. Single-pass results and the
+descriptive Wilson intervals in `comparison.json` do not establish statistical
+significance, especially because injection variants share user tasks.
+
+Local records under `runs/nemotron-agentdyn-she-codex-20261106-r3/` include:
+
+- `artifacts/manifest.json`: source revision, frozen inputs, original evidence
+  hashes, replay provenance, training failure and evaluation status.
+- `artifacts/comparison.json`, `*-report.json` and `*-results.jsonl`: aggregate
+  and per-case results, denominators, errors, paired clean outcomes and intervals.
+- `artifacts/root/` and `artifacts/final/`: identical learned artifacts.
+- `workspace/output/`: all eight diagnoses, routes, manifests and the provider
+  refusal trajectory. There is no candidate patch or validation score.
+- `artifacts/replay-driver.py` and `review-artifacts.tar.gz`: the exact local
+  continuation driver and the structured review bundle. All recorded artifact
+  hashes were verified after completion.
+
+These files are ignored local outputs, not published benchmark artifacts.
+The overall run status is `complete_with_errors` with `training_complete=false`.

@@ -69,3 +69,9 @@ count as successful defenses. Provider cost is unknown when no price is set.
 Post-tool filtering and final-answer replacement cannot undo an executed side
 effect. Upstream sink rules apply only where AgentDyn tool names and argument
 schemas match. These differences limit claims about effectiveness and parity.
+
+The 2026-11-06 model-backed continuation completed eight diagnosis batches but
+the provider refused the patch-generation request. It retained the seed and
+performed no candidate validation. See the example's learning outcome and
+evaluation scope for the diagnostic held-out comparisons and the preserved
+failed runs; they do not establish successful SHE learning.
