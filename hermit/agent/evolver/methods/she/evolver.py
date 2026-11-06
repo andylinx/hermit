@@ -4,7 +4,7 @@ import hashlib
 import re
 import shutil
 
-from hermit.agent.evolver.base import Evolver, StepResult
+from hermit.agent.evolver.base import Evolver, StepResult, ask
 from hermit.agent.evolver.methods.she.runtime import ARTIFACTS, SHE_REVISION, require_she
 from hermit.agent.evolver.methods.evosafe.evidence import summarize_case
 from hermit.agent.evolver.methods.evosafe.evolver import metrics
@@ -56,8 +56,10 @@ def training_records(workspace, chars):
 
 def call_model(ctx, messages, name, usage):
     proposer = ctx.params.get("backend") or ctx.params.get("proposer", "llm")
-    if proposer == "llm":
-        response = ctx.tools["llm"](messages=messages, max_tokens=int(ctx.params.get("max_tokens", 10000)))
+    if proposer in ("llm", "direct"):
+        sampling = {"max_tokens": int(ctx.params.get("max_tokens", 10000))}
+        response = (ask(ctx.agent, messages, **sampling) if ctx.agent is not None
+                    else ctx.tools["llm"](messages=messages, **sampling))
         return response["content"]
     if proposer not in {"codex", "claude"}:
         raise ValueError("proposer must be llm, codex or claude")
@@ -84,6 +86,18 @@ def prompt_records(records):
             'failed', 'error', 'reasoning_trace', 'tool_calls', 'final_response',
             'rule_hits', 'memory_hits', 'risk_flags', 'guardrail_warnings')
     return [{k: r[k] for k in keys if k in r} for r in records]
+
+
+def parse_object(content):
+    """Accept plain JSON or one complete upstream-style JSON fence, never prose."""
+    text = content.strip()
+    fenced = re.fullmatch(r'```json(?:[ \t]+SAFETY_AXES_JSON)?[ \t]*\n(.*?)\n```', text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError('SHE response must be a JSON object')
+    return result
 
 
 def acceptance(parent, candidate, params):
@@ -162,7 +176,7 @@ class SHEEvolver(Evolver):
                         {"role": "user", "content": json.dumps({"records": prompt_records(
                             [r for r in records if r['case_id'] in case_ids]),
                             "routes": [r.to_dict() for r in batch]})}]
-                    diagnoses.extend(json.loads(call_model(ctx, messages,
+                    diagnoses.extend(parse_object(call_model(ctx, messages,
                         f"she-debugger-{start // batch_size + 1:03d}", usage))["diagnoses"])
                 if (len(diagnoses) != len(routes) or {d["case_id"] for d in diagnoses} != {r.case_id for r in routes}):
                     raise ValueError("debugger must diagnose each failed training case exactly once")
@@ -198,7 +212,7 @@ class SHEEvolver(Evolver):
                         "training_records": prompt_records(records), "iteration_diff": diff, "attribution": attribution,
                         "previous_trial": {k: previous.get(k) for k in ("accepted", "patch", "reason")},
                         "patch_spec_template": patch_spec_template_for_profile()})}]
-                patch = normalize_patch_spec(json.loads(call_model(ctx, messages, "she-evolve", usage)))
+                patch = normalize_patch_spec(parse_object(call_model(ctx, messages, "she-evolve", usage)))
                 validate_patch_spec(patch)
                 updates = patch.get("file_updates", [])
                 if not updates or len({u["path"] for u in updates}) > max_files:

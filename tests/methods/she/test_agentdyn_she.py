@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("she", reason="install the pinned she dependency group")
 
-from hermit.agent.evolver.methods.she.evolver import SHEEvolver, call_model, training_records
+from hermit.agent.evolver.methods.she.evolver import SHEEvolver, call_model, parse_object, training_records
 from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/utils"))
 from bridge import GuardedRuntime, _run_episode as run
@@ -148,6 +148,31 @@ def test_no_failures_no_proposal_and_no_validation(tmp_path):
     assert not calls
 
 
+def test_debugger_batches_preserve_every_failed_case(tmp_path):
+    ctx, _ = context(tmp_path)
+    ctx.params.update(debugger='llm', debugger_batch_size=2)
+    tasks = ctx.workspace.learning_material / 'current/tasks'
+    for i in range(4):
+        (tasks / f'extra-{i}.json').write_text(json.dumps(row(f'extra-{i}', True, utility=False)))
+    proposal = ctx.tools['llm']
+    seen = []
+    def llm(**kwargs):
+        payload = json.loads(kwargs['messages'][-1]['content'])
+        if 'routes' not in payload:
+            return proposal(**kwargs)
+        ids = [r['case_id'] for r in payload['routes']]
+        assert len(ids) <= 2
+        assert {r['case_id'] for r in payload['records']} == set(ids)
+        seen.extend(ids)
+        return {'content': json.dumps({'diagnoses': [{'case_id': i, 'primary_owner': 'system_prompt',
+            'root_cause': 'unnecessary refusal', 'predicted_fix': 'preserve utility', 'safety_axes': {}}
+            for i in ids]})}
+    ctx.tools['llm'] = llm
+    result = SHEEvolver().step(ctx)
+    assert result.extra['accepted'], result.extra
+    assert sorted(seen) == ['extra-0', 'extra-1', 'extra-2', 'extra-3', 'train']
+
+
 def test_training_sidecar_and_path_boundary(tmp_path):
     ctx, _ = context(tmp_path)
     root = ctx.workspace.learning_material / "current"
@@ -197,6 +222,41 @@ def test_cli_envelope_and_usage(tmp_path, monkeypatch, provider):
     assert usage == [used]
 
 
+@pytest.mark.parametrize('header', ['', '```json\n', '```json SAFETY_AXES_JSON\n'])
+def test_response_object_supports_upstream_fence(header):
+    text = '{"diagnoses": []}'
+    assert parse_object(header + text + ('\n```' if header else '')) == {'diagnoses': []}
+
+
+@pytest.mark.parametrize('text', ['[]', 'Refused. {"diagnoses": []}',
+                                '```json\n{}\n```\n```json\n{}\n```'])
+def test_response_object_rejects_non_object_or_mixed_prose(text):
+    with pytest.raises(ValueError):
+        parse_object(text)
+
+
+def test_direct_backend_uses_shared_base_agent(tmp_path):
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    ctx, _ = context(tmp_path)
+    calls = []
+
+    class Agent:
+        def configured(self, **sampling):
+            calls.append(sampling)
+            return self
+
+        def run(self, messages):
+            calls.append(messages)
+            return SimpleNamespace(reply='{}', reasoning=None, finish_reason='stop', usage=[])
+
+    ctx = replace(ctx, agent=Agent(), tools={}, params={'proposer': 'direct', 'max_tokens': 123})
+    messages = [{'role': 'user', 'content': 'Diagnose the failed task.'}]
+    assert call_model(ctx, messages, 'she-debugger', []) == '{}'
+    assert calls == [{'max_tokens': 123}, messages]
+
+
 def test_trainer_end_to_end(tmp_path, monkeypatch):
     import yaml
     from hermit.config import Config
@@ -241,6 +301,9 @@ def run(task, adapter):
     report = json.loads((tmp_path / "runs/offline/step_0001/output/selection.json").read_text())
     assert report["accepted"]
     assert report["eval_task_ids"] == ["val-clean", "val-injected"]
+    from run_experiment import validate_training
+    audit = validate_training(tmp_path / 'runs/offline', method='she')
+    assert audit['selection_files'] == 1
 
 
 def test_native_runtime_final_answer_and_provenance(tmp_path, monkeypatch):
