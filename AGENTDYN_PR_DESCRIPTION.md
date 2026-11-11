@@ -1,3 +1,7 @@
+# Expand AgentDyn TEST coverage and switch the Codex victim to Nemotron 3.5 Lightning
+
+Base: `main` · Head: `fix/agentdyn-test-lightning`
+
 ## Change
 
 Expand AgentDyn TEST from 54 to 186 existing frozen cases (18 clean, 168 injected) with `prepare_all_groups.py --full-test`. All variants remain in their original TEST-owned groups. TRAIN (57 cases), validation (54 cases), and existing payloads are unchanged. The default preparation protocol remains available; Codex uses the separate `full-test-v1` output directory.
@@ -7,6 +11,8 @@ Apply the documented patch to pinned AgentDyn revision `5353cf7` to persist newl
 Switch the Codex EvoSafe victim to `vllm/nvidia/nvidia/nemotron-3.5-lightning`. Keep `max_iters: 25`, GPT-6 Sol roles and the existing search/promotion settings. Update the AgentDyn README, data notes and reproduction notes; label the old 54-case scores as historical. No Hermit core, algorithm, sandbox or runtime isolation changes; generated data and experiment artifacts are excluded.
 
 ## Validation
+
+Results from the original implementation checks:
 
 - `python -m pytest --changed`: **898 passed, 140 skipped, 24 failed**. All 24 failures reproduce on unchanged upstream `9c45a65`, with this machine's unusable bubblewrap (`Failed RTM_NEWADDR: Operation not permitted`). Linux sandbox checks remain unverified here.
 - Five new offline regressions pass (~1.6 seconds). All four native webpage tests fail on unpatched AgentDyn and pass with the patch; invitation tasks 5 and 7 pass native utility judging. Native tests require the optional patched AgentDyn dependency and otherwise skip.
