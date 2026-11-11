@@ -91,7 +91,10 @@ specification checks run unconfined only for repository-owned test fixtures; pla
 Per-round outputs retain `training-records.json`, diagnoses, routes, manifests, patch, candidate,
 `iteration-diff.json`, `attribution.json` and `selection.json`. State retains `she-feedback.json`, including the
 initial reference and installed artifact hash. Episode logs include native trajectories, tool audit,
-`defense-state.json`, semantic-judge calls and metered usage. Only shared model clients perform model calls.
+`defense-state.json`, semantic-judge calls and metered usage. Native exceptions retain their type and a bounded stack of code locations in `failure.json`, without exception
+text, source lines or local variables. State-export and cleanup failures are recorded separately in
+`finalization-errors.json`; they preserve the original episode error, close remaining clients and retain known
+usage. Such finalization failures remain episode errors and cannot count as successful defenses. Only shared model clients perform model calls.
 
 The runner exports comparison reports and root/final adapters under the ignored run's `artifacts/` directory.
 Keep manifests, effective config, spending, per-case records and adapter snapshots together. Do not commit

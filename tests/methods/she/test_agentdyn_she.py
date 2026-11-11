@@ -577,3 +577,102 @@ def test_selective_judge_prompt_matches_the_pinned_upstream_client(tmp_path, mon
     assert result['verdict'] == 'SAFE'
     assert shared_messages == native_messages
     judge.close()
+
+
+def test_native_failure_keeps_code_locations_without_private_exception_text(tmp_path, monkeypatch):
+    pytest.importorskip('agentdojo')
+    from agentdojo.agent_pipeline import agent_pipeline as api
+    from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
+    from victim import empty_usage
+
+    class FailingReader(BasePipelineElement):
+        name = 'offline-failing-reader'
+        usage = empty_usage()
+
+        def query(self, *args, **kwargs):
+            raise RuntimeError('private-fixture-token: provider response body must not be retained')
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr('victim.make_victim', lambda *a, **kw: FailingReader())
+    monkeypatch.setattr(api, 'get_llm', lambda *a: FailingReader())
+    out = run({'suite': 'shopping', 'user_task_id': 'user_task_0'}, None,
+              params={'model': 'fixture', 'base_url': 'https://model.invalid/v1'}, base=tmp_path)
+    assert 'episode_error' in out.output
+    failure_text = (out.log / 'failure.json').read_text()
+    failure = json.loads(failure_text)
+    assert failure['error_type'] == 'RuntimeError'
+    assert 0 < len(failure['frames']) <= 8
+    assert any(frame['function'] == 'query' for frame in failure['frames'])
+    assert all(set(frame) == {'file', 'function', 'line'} for frame in failure['frames'])
+    assert all('/' not in frame['file'] for frame in failure['frames'])
+    assert 'private-fixture-token' not in failure_text + json.dumps(out.output)
+
+
+@pytest.mark.parametrize('phase', ['state_export', 'defense_close', 'auditor_close', 'victim_close', 'request_and_state'])
+def test_finalization_failure_preserves_original_error_cleanup_and_known_usage(tmp_path, monkeypatch, phase):
+    pytest.importorskip('agentdojo')
+    from agentdojo.agent_pipeline import agent_pipeline as api
+    from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
+    from agentdojo.types import text_content_block_from_string
+    from victim import empty_usage
+    closed = []
+
+    class Defense:
+        def system_prompt_transform(self, prompt):
+            return prompt
+        def prepare_query(self, query):
+            return query
+        def finalize_response(self, response):
+            return response
+        def export_state(self):
+            if phase in {'state_export', 'request_and_state'}:
+                raise RuntimeError('private-fixture-token: state RPC unavailable')
+            return {}
+        def close(self):
+            closed.append('defense')
+            if phase == 'defense_close':
+                raise RuntimeError('private-fixture-token: container cleanup unavailable')
+
+    class Reader(BasePipelineElement):
+        name = 'offline-metered-reader'
+        usage = {**empty_usage(), 'calls': 1, 'input_tokens': 7, 'output_tokens': 3, 'cost_usd': 1.0}
+        def query(self, query, runtime, env, messages=(), extra_args=None):
+            if phase == 'request_and_state':
+                raise ValueError('private-fixture-token: original native error')
+            message = {'role': 'assistant', 'content': [text_content_block_from_string('Done')], 'tool_calls': None}
+            return query, runtime, env, [*messages, message], extra_args or {}
+        def close(self):
+            closed.append('victim')
+            if phase == 'victim_close':
+                raise RuntimeError('private-fixture-token: client close unavailable')
+
+    class Judge:
+        usage = {**empty_usage(), 'calls': 1, 'input_tokens': 2, 'output_tokens': 1, 'cost_usd': .5}
+        def __init__(self, *args, **kwargs):
+            pass
+        def close(self):
+            closed.append('auditor')
+            raise RuntimeError('private-fixture-token: judge close unavailable')
+
+    monkeypatch.setattr('isolated_hooks.IsolatedDefense', lambda *a, **kw: Defense())
+    monkeypatch.setattr('victim.make_victim', lambda *a, **kw: Reader())
+    monkeypatch.setattr(api, 'get_llm', lambda *a: Reader())
+    monkeypatch.setattr('she_judge.SHESelectiveJudge', Judge)
+    params = {'model': 'fixture', 'base_url': 'https://model.invalid/v1', 'hook_runtime': 'she',
+              'auditor': {'enabled': phase == 'auditor_close'}}
+    out = run({'suite': 'shopping', 'user_task_id': 'user_task_0'}, TEMPLATE, params=params, base=tmp_path)
+    assert 'episode_error' in out.output
+    assert {'defense', 'victim'} <= set(closed)
+    if phase == 'request_and_state':
+        assert 'ValueError' in out.output['episode_error']
+    if phase == 'auditor_close':
+        assert 'auditor' in closed and out.tokens == 13 and out.cost_usd == 1.5
+    else:
+        assert out.tokens == 10 and out.cost_usd == 1.0
+    assert json.loads((out.log / 'usage.json').read_text())['input_tokens'] == (9 if phase == 'auditor_close' else 7)
+    diagnostics = (out.log / 'finalization-errors.json').read_text()
+    errors = json.loads(diagnostics)
+    assert any(error['phase'] == ('state_export' if phase == 'request_and_state' else phase) for error in errors)
+    assert 'private-fixture-token' not in diagnostics + json.dumps(out.output)

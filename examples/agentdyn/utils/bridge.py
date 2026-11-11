@@ -36,6 +36,16 @@ def metered(usage):
     return tokens, None if usage.get("unknown_cost_calls") else usage.get("cost_usd")
 
 
+def error_details(exc):
+    """Retain bounded code locations, never exception text, source lines or locals."""
+    frames, trace = [], exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        frames.append({'file': Path(code.co_filename).name, 'function': code.co_name, 'line': trace.tb_lineno})
+        trace = trace.tb_next
+    return {'error_type': type(exc).__name__, 'frames': frames[-8:]}
+
+
 def encode(value):
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
@@ -317,6 +327,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
 
     pipeline.query = capture
     started = time.monotonic()
+    failure = None
     try:
         if transform_error is not None:
             raise transform_error
@@ -324,7 +335,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
             pipeline, user_task, injection_task, task.get("injections", {}))
     except Exception as exc:
         (log / "failure.json").write_text(json.dumps({"case_id": task.get("id"),
-            "user_task_id": task["user_task_id"], "error_type": type(exc).__name__}))
+            "user_task_id": task["user_task_id"], **error_details(exc)}))
         (log / "trajectory.json").write_text(json.dumps(captured, default=encode))
         (log / "audit.json").write_text(json.dumps(audit))
         reason = "episode did not produce a terminal assistant response" if (
@@ -334,20 +345,30 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     else:
         failure = None
     finally:
-        if defense is not None:
+        finalization_errors = []
+        if defense is not None and params.get('hook_runtime') == 'she':
             try:
-                if params.get("hook_runtime") == "she":
-                    (log / "defense-state.json").write_text(json.dumps(defense.export_state(), indent=2))
-            finally:
-                defense.close()
+                (log / 'defense-state.json').write_text(json.dumps(defense.export_state(), indent=2))
+            except Exception as exc:
+                finalization_errors.append({'phase': 'state_export', **error_details(exc)})
+        # A dead hook worker or failed close must not skip the remaining clients
+        # or discard already known usage. The supervisor still owns container cleanup.
+        for phase, resource in [('defense_close', defense), ('auditor_close', classifier), ('victim_close', victim)]:
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception as exc:
+                    finalization_errors.append({'phase': phase, **error_details(exc)})
         if classifier is not None:
-            classifier.close()
-            (log / "auditor-usage.json").write_text(json.dumps(classifier.usage, indent=2))
-            for key, value in classifier.usage.items():
+            usage = classifier.usage
+            for key, value in usage.items():
                 victim.usage[key] += value
+            (log / 'auditor-usage.json').write_text(json.dumps(usage, indent=2))
         if victim is not None:
-            victim.close()
-            (log / "usage.json").write_text(json.dumps(victim.usage, indent=2))
+            (log / 'usage.json').write_text(json.dumps(victim.usage, indent=2))
+        if finalization_errors:
+            (log / 'finalization-errors.json').write_text(json.dumps(finalization_errors, indent=2))
+            failure = failure or 'episode finalization failed; inspect local failure artifacts'
     # Do not count an exhausted loop or missing terminal answer as a secure result.
     if failure is None and (not captured or captured[-1].get("role") != "assistant"
                             or captured[-1].get("tool_calls") or not captured[-1].get("content")):
