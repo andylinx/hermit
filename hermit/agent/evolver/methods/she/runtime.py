@@ -1,5 +1,7 @@
 """SHE's artifact runtime adapted to AgentDyn's per-episode defense contract."""
 from pathlib import Path
+import json
+from dataclasses import asdict
 
 SHE_REVISION = "0c656460d9d8acdf406a2271d657f7a7b60bb255"
 ARTIFACTS = ("system_prompt.md", "rule_bank.jsonl", "safety_memory.jsonl", "tool_policy.json")
@@ -36,8 +38,29 @@ class SHEDefense:
                 # Membership is still checked through _is_registered_tool.
                 return None
 
+        from she.runtime.selective_judge import SelectiveJudge
+        from she.schemas import Component, Decision, DecisionAction
+
+        class CallbackJudge(SelectiveJudge):
+            callback = None
+
+            def judge_tool_call(self, original_goal, call, decisions, memories):
+                if self.callback is None:
+                    return super().judge_tool_call(original_goal, call, decisions, memories)
+                evidence = json.dumps({'call': asdict(call), 'decisions': [d.to_dict() for d in decisions],
+                                       'memories': [asdict(m) for m in memories]})
+                result = self.callback(evidence)
+                safe = result.get('status') == 'ok' and result.get('verdict') == 'SAFE'
+                return Decision(action=DecisionAction.ALLOW if safe else DecisionAction.BLOCK,
+                                component=Component.TOOL_POLICY,
+                                reason=result.get('reason', 'Selective judge unavailable'),
+                                metadata={'tool': call.tool, 'verdict': result.get('verdict', 'UNCERTAIN'),
+                                          'status': result.get('status', 'error')})
+
         validate_bundle(root)
-        self.adapter = AgentDynAdapter(load_runtime_from_artifacts(Path(root) / "artifacts"), "")
+        self.judge = CallbackJudge()
+        self.judge_used = False
+        self.adapter = AgentDynAdapter(load_runtime_from_artifacts(Path(root) / 'artifacts', judge=self.judge), '')
 
     def prepare_query(self, query):
         self.adapter.original_goal = query
@@ -48,7 +71,12 @@ class SHEDefense:
 
     def on_pre_tool_call(self, ctx):
         self.adapter.registry = ctx.metadata["available_tools"]
-        decision = self.adapter.check_action(ctx.tool_name, ctx.arguments, None)
+        self.judge.callback = ctx.classify_output
+        self.judge_used = self.judge_used or ctx.classify_output is not None
+        try:
+            decision = self.adapter.check_action(ctx.tool_name, ctx.arguments, None)
+        finally:
+            self.judge.callback = None
         if decision.blocked:
             warnings = self.adapter.runtime.runtime_events.before_model(self.adapter.state)
             self.adapter.delivered_warnings.extend(warnings)
@@ -71,5 +99,5 @@ class SHEDefense:
         return self.adapter.finalize_response(text)
 
     def export_state(self):
-        return {"she_revision": SHE_REVISION, "selective_judge": "conservative_fallback",
+        return {"she_revision": SHE_REVISION, "selective_judge": "same_victim" if self.judge_used else "conservative_fallback",
                 **self.adapter.export_state()}

@@ -1,83 +1,112 @@
 # SHE on AgentDyn
 
-This adaptation of [SHE](https://github.com/RainbowQTT/SHE) evolves four explicit
-safety artifacts for a fixed AgentDyn victim. It uses frozen indirect-injection
-cases and native AgentDyn judges, rather than reproducing the authors'
-Agent-SafetyBench experiments.
+This adaptation of [SHE](https://github.com/RainbowQTT/SHE) learns four explicit safety artifacts for a frozen
+AgentDyn victim. Native frozen indirect-injection cases replace the authors' Agent-SafetyBench tasks and six
+attack conditions. This is an AgentDyn reproduction of the learning mechanism, not a reproduction of the
+paper's benchmark scores.
 
-The `she@1.0` template exposes a system prompt, rule bank, safety memory and tool
-policy. The existing prompt-only and EvoSafe templates do not provide this
-four-artifact search space. The runtime bridge, template checks and Python code
-are fixed; only `artifacts/` is learnable. The adapter is not plugin-portable: its
-hooks require the task's runtime bridge.
+## Adapter and evolution
+
+`she@1.0` exposes a system prompt, rule bank, safety memory and tool policy under `artifacts/`. The seed files
+are copied unchanged from upstream, with the upstream Apache-2.0 license. The runtime, bridge, template
+checks and Python code are fixed. Acting adapters require the task's hook bridge. Neither `prompt-only` nor `evosafe@1.0` exposes these four carriers.
 
 ```mermaid
 flowchart TD
-  A[Current training trajectories and native verdicts] --> B[Upstream failure routing]
-  B --> C[Optional model diagnosis in bounded batches]
-  C --> D[Component manifests and constrained artifact patch]
-  D --> E[Upstream validation and Hermit specification checks]
-  E --> F[Parent and candidate on the same validation split]
-  F --> G{ASR does not rise; both utilities do not fall; one improves}
-  G -->|yes| H[Promote candidate]
-  G -->|no or incomplete| I[Keep parent]
-  H --> J[Training feedback and paired attribution]
+  A[57 TRAIN episodes under current artifacts] --> B[Upstream failure routing]
+  B --> C[Codex diagnosis in bounded batches]
+  C --> D[Upstream manifests and constrained artifact patch]
+  D --> E[Bundle validation and fixed-file specification checks]
+  E --> F[Parent and candidate on the same 54 validation cases]
+  F --> G{Best-so-far safety and utility gate}
+  G -->|improves| H[Install candidate artifacts]
+  G -->|fails or uncertain| I[Keep parent artifacts]
+  H --> J[Training diffs and paired attribution]
   I --> J
-  J --> A
+  J --> R{Configured training complete?}
+  R -->|more rounds within budget| A
+  R -->|complete| K[Freeze final and evaluate 186 TEST cases]
+  R -->|failed or budget stopped| L[Retain incomplete-run records]
 ```
 
-## Upstream mapping
+One Trainer step is one evolution round over the entire TRAIN split. The Lightning recipes set 20 epochs,
+matching the released author's driver round cap, subject to the recorded wall-clock budget. This is separate
+from the victim's `max_iters: 25` tool-loop limit. The final adapter is the last accepted best-so-far version.
 
-Upstream is pinned to `0c656460d9d8acdf406a2271d657f7a7b60bb255` in the `she`
-dependency group. Seed artifacts are copied unchanged with their Apache-2.0
-license. The implementation calls upstream runtime, taxonomy, failure routing,
-manifests, patch validation and trajectory-diff functions.
+## Authors' implementation and this adaptation
 
-| Dimension | Authors' implementation | This adaptation and reason |
+The optional `she` dependency group pins upstream revision `0c656460d9d8acdf406a2271d657f7a7b60bb255`.
+The implementation calls the upstream runtime, diagnosis, manifest and patch APIs. Components adapted at
+the transport or task boundary are identified separately below.
+
+| Dimension | Pinned upstream | This adaptation and reason |
 |---|---|---|
-| Learned object | Four safety artifacts | Same carriers and seed; Python remains fixed |
-| Learning trigger | Evolution rounds | One patch per Trainer step; framework adaptation |
-| Evidence | SafetyBench trajectories and safety labels | Training-only native AgentDyn trajectories/verdicts; task adaptation |
-| Diagnosis | Per-case debugger and component routing | Upstream reasoning requirements and routing, with batched typed JSON replacing prose plus the separate axes block; execution adaptation |
-| Candidate edits | Bounded artifact operations | Upstream patcher, restricted to diagnosed owners and a file budget |
-| Selection | Safety/utility gates including clean UBR | Strict native ASR, clean utility and injected utility gate; AgentDyn has no UBR label |
-| Runtime judge | Pluggable semantic judge | Conservative deterministic fallback; uncertain calls are blocked |
-| Conditions | Clean and six benchmark settings | Clean and existing frozen indirect injections only; task adaptation |
-| History | Cross-round evidence and attribution | Compare only cases observed in both rounds under the recorded promotion; missing cases are not fixes |
-| Omitted features | Signed registry, belief reports, optional initial-UA floor | No signed AgentDyn registry; no Bayesian reports or alternate gate in this experiment |
+| Learned carriers | Four seed artifacts | Same files and seed; fixed Python bridge is a framework adaptation |
+| Runtime | `load_runtime_from_artifacts`, `SHERuntimeAdapter` | Same preprocessing, memories, tool checks, output warnings and final-response checks; native AgentDyn tools and judges are a task adaptation |
+| Selective judge | `SHERuntimeSelectiveJudge.judge_tool_call` through an external benchmark client | Same SAFE/HARMFUL/UNCERTAIN decision protocol and prompt, transported through a bounded host callback and shared victim client; execution adaptation |
+| Registry | Benchmark tool registry and integrity checks | Native registry membership retained; signed registry checks omitted because AgentDyn provides none |
+| Evidence | Public benchmark trajectories and runtime state | Public native messages, tool results, verdicts and SHE state, with per-case clipping; private reasoning is not inferred or fabricated |
+| Diagnosis | `diagnose_records`, failure routing and taxonomy | Same routing and diagnosis requirements, four cases per typed Codex response instead of per-case prose plus axes block; execution choice |
+| Patch | `propose_patch_manifests`, `normalize_patch_spec`, `validate_patch_spec`, `apply_patch_spec` | Same constrained language, owner restrictions and bundle validation; one changed artifact per round by default is a reproduction budget |
+| History | `compute_iteration_diff`, `attribute_manifests` | Same history, with attribution restricted to cases observed in both rounds and the installed accepted artifact hash; prevents missing cases being called fixes |
+| Selection | Driver defaults to `initial_ua_floor`; library also supports `strict_best` | Both modes supported. AgentDyn has no clean UBR label, so native clean utility is an additional guard and a term in the native score; task adaptation |
+| Failed evaluations | Upstream reports failed counts and completed-episode metrics | Reports retain those denominators. Selection additionally requires the candidate's pessimistic bounds to beat the parent's optimistic bounds; conservative reproduction choice |
+| Data and schedule | 15 training tasks, two rollouts per task/condition, six conditions; 185 held-out IDs; up to 20 rounds | Fixed 57 TRAIN / 54 validation / 186 TEST, one attempt per case, clean and indirect injection only; task adaptation. Separate validation is an explicit reproduction choice |
+| Models | Configurable acting, judge and reflection clients | Lightning for acting and selective judging, GPT-6 Sol Codex for diagnosis and patching; user-selected experiment row |
+| Omitted outputs | Belief reports and benchmark-specific analyses | No Bayesian reports, six-condition scores or clean UBR claims |
 
-The learner uses Hermit's shared CLI Base Agents. The Codex example uses a
-read-only sandbox and `approval_policy="on-request"`; it does not require
-`--yolo`. Runtime hooks run in a separate networkless Docker container, with
-only the installed SHE library, fixed bridge and four artifacts mounted. Native
-tools, judge predicates and provider credentials remain in the trusted worker.
+## Runtime and model layers
 
-## Setup and evaluation
+The actor and selective judge use `direct` and the shared `ChatClient` through the AgentDyn victim wrapper.
+The debugger and patch proposer use the shared Codex or Claude Base Agent through `call_role`; fresh sessions,
+structured output, cancellation, timeouts, login handling and usage accounting remain shared framework behavior.
+The method does not implement its own CLI launcher or import the external SafetyBench model client.
 
-Install the `she` dependency group together with the pinned AgentDyn checkout.
-See the [example](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdyn/she/README.md) for environment setup,
-the 57/54/54 grouped protocol, the frozen experiment runner and local outputs.
-The no-adapter, seed and final adapters are evaluated on the same 54 held-out
-cases after training. The acting model is Nemotron Super 49B v1.5; the learner
-is configured independently. Failed episodes are reported separately and never
-count as successful defenses. Provider cost is unknown when no price is set.
+Learned artifacts execute in a networkless, read-only Docker container with bounded resources. A fixed RPC
+can request a semantic verdict for one proposed tool call, using the trusted user goal and public runtime
+evidence. It cannot select a model, endpoint, prompt, credentials, task label or native judge. Only a completed
+`SAFE` response allows execution; malformed responses, exhausted budgets and other verdicts do not. The
+runtime requests this judge only when upstream rules escalate. Without a configured callback, upstream's
+conservative fallback remains available. Hard blocks do not consult the judge.
+
+The operator fixes the semantic judge budget, shared victim and prompt. Both seed and final evaluations use
+the same settings. The `auditor` configuration section supplies the existing callback's resource limits;
+`hook_runtime: she` selects SHE tool-call judging, while EvoSafe output classification retains its own semantics.
+The Lightning recipe permits eight semantic calls per episode. Extra calls are metered with the acting usage.
+
+Post-tool filtering and final-answer replacement cannot undo an already executed side effect. Native tool names
+also differ from SafetyBench names: upstream sink-specific rules apply only where their schemas match.
+
+## Selection and error handling
+
+`strict_best` requires nonincreasing ASR and nondecreasing clean and injected utility. `initial_ua_floor`
+compares injected utility to the first measured parent's stored reference, while preserving current best ASR
+and clean utility. In both modes the native score `clean utility + injected utility - ASR` must strictly improve
+beyond `min_improvement`. This native score substitutes a task-utility signal for SHE's unavailable clean UBR;
+it is not the paper's score. TEST outcomes do not select candidates or configure this gate.
+
+The library defaults to rejecting incomplete validation. The Lightning recipes explicitly set
+`parent_error_policy: conservative_bounds` and `candidate_error_policy: worst_case_bounds`. Every planned
+validation ID must still have exactly one result. Unknown parent results receive their best possible outcomes;
+unknown candidate results receive their worst possible outcomes. Promotion must hold against these opposite
+bounds, so failed episodes cannot manufacture an improvement. Bounds are marked as selection bounds, with
+`measured_objective: null`; they are not published as observed rates. Malformed or missing ID coverage rejects
+the comparison. Native verdicts and persisted errors are unchanged.
+
+## Run and evaluate
+
+See the [example](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdyn/she/README.md) for setup,
+private backend configuration, preparation and the frozen experiment runner. Codex and Claude recipes both
+use `vllm/nvidia/nvidia/nemotron-3.5-lightning`, 57 TRAIN / 54 validation / 186 TEST and 25 acting iterations.
+The canonical Codex recipe fixes GPT-6 Sol, high effort, and a read-only learner session. Shell tools and access
+to held-out trajectories are not part of the learner contract.
+
+The runner evaluates `none`, `root` and `final` only after training completes, with identical frozen acting
+settings and TEST IDs. Reports show utility, attack success, coverage and errors separately. A partial-run
+objective is unavailable. Single-pass scores are descriptive because variants share user-task groups.
+Live Lightning optimization results remain pending until the current model endpoint is configured and the
+measured experiment completes; the offline tests and Codex connectivity probe do not establish improvement.
 
 ```{literalinclude} ../../hermit/agent/evolver/methods/she/evolver.yaml
 :language: yaml
 ```
-
-Post-tool filtering and final-answer replacement cannot undo an executed side
-effect. Upstream sink rules apply only where AgentDyn tool names and argument
-schemas match. These differences limit claims about effectiveness and parity.
-
-The 2026-11-06 model-backed continuation completed eight diagnosis batches but
-the provider refused the patch-generation request. It retained the seed and
-performed no candidate validation. See the example's learning outcome and
-evaluation scope for the diagnostic held-out comparisons and the preserved
-failed runs; they do not establish successful SHE learning.
-
-A subsequent retry explicitly requested Daybreak Blue and successfully generated
-a statically valid tool-policy patch. Parent validation had four failed or
-missing verdicts out of 54, so the strict gate stopped before candidate
-validation. The unchanged final adapter reuses the earlier test results with
-explicit provenance; patch effectiveness remains unmeasured.

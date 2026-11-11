@@ -1,8 +1,8 @@
 data:
-  tasks: ../utils/data/all-groups-v1/tasks.jsonl
-  train: ../utils/data/all-groups-v1/train.txt
-  val: ../utils/data/all-groups-v1/val.txt
-  test: ../utils/data/all-groups-v1/test.txt
+  tasks: ../utils/data/full-test-v1/tasks.jsonl
+  train: ../utils/data/full-test-v1/train.txt
+  val: ../utils/data/full-test-v1/val.txt
+  test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
 task_info: ../utils/task-info
@@ -18,11 +18,18 @@ agent:
     temperature: 0.0
     request_timeout_s: 120
     max_retries: 4
-    logs: runs/she-codex-daybreak-r1-episodes
+    logs: runs/she-lightning-codex-daybreak-episodes
     hook_runtime: she
     episode_timeout_s: 900
+    hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+    auditor:
+      enabled: true
+      max_calls: 8
+      max_chars: 16000
+      max_tokens: 1024
+      timeout_s: 45
   base: direct
-  model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
 judge:
   path: ../utils/judge.py
 evolver:
@@ -31,11 +38,16 @@ evolver:
     debugger: llm
     claude_timeout_s: 1500
     max_updated_artifacts: 1
+    gate_mode: initial_ua_floor
+    parent_error_policy: conservative_bounds
+    candidate_error_policy: worst_case_bounds
     min_clean_utility: 0.0
     min_improvement: 0.0
   base: codex
   codex:
-    isolation: none
+    model: gpt-6-sol
+    effort: high
+    web_search: false
     codex_sandbox: read-only
     timeout_s: 1500
     args:
@@ -43,13 +55,33 @@ evolver:
     - approval_policy="on-request"
     - --cyber-access-program
     - daybreak_blue
+    - --disable
+    - shell_tool
+    - --disable
+    - unified_exec
+    - --disable
+    - multi_agent
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - skill_search
+    - --disable
+    - image_generation
+environment:
+  runner: host
 sandbox:
-  enabled: false
+  evolver:
+    allowed_hosts:
+    - chatgpt.com
+    - auth.openai.com
+    - api.openai.com
 trainer:
-  run_name: nemotron-agentdyn-she-codex-daybreak-20261106-r1
+  run_name: agentdyn-she-lightning-codex-daybreak
   output_dir: runs
-  epochs: 1
+  epochs: 20
   call_timeout_min: 480
   budget:
     hours: 12
-  tree_dir: runs/trees/she-codex-daybreak-20261106-r1
+  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak

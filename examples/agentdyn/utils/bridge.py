@@ -240,7 +240,11 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         def record_auditor_call(event):
             with (log / "llm-auditor-calls.jsonl").open("a") as stream:
                 stream.write(json.dumps(event) + "\n")
-        classifier = OutputClassifier(params, base, on_call=record_auditor_call)
+        if params.get("hook_runtime") == "she":
+            from she_judge import SHESelectiveJudge
+            classifier = SHESelectiveJudge(params, base, on_call=record_auditor_call)
+        else:
+            classifier = OutputClassifier(params, base, on_call=record_auditor_call)
     config = PipelineConfig(llm=victim, model_id=None, defense=None,
                             system_message_name=None, system_message=None, suite_name=task["suite"])
     # A hook failure here is the episode's failure: recorded, reported and cleaned up below like any other.
@@ -257,11 +261,13 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     pipeline = AgentPipeline.from_config(config)
     audit, captured = [], []
     trace_id = uuid.uuid4().hex
+    trusted_query = None
 
     class Executor(ToolsExecutor):
         def query(self, query, runtime, env, messages=(), extra_args=None):
             captured[:] = messages
-            facade = GuardedRuntime(runtime, defense, query, trace_id, tool_result_to_str, audit, task["suite"], classifier)
+            facade = GuardedRuntime(runtime, defense, trusted_query if trusted_query is not None else query,
+                                    trace_id, tool_result_to_str, audit, task["suite"], classifier)
             q, _, e, m, a = super().query(query, facade, env, messages, extra_args or {})
             captured[:] = m
             return q, runtime, e, m, a
@@ -279,6 +285,8 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     original_query = pipeline.query
 
     def capture(*args, **kwargs):
+        nonlocal trusted_query
+        trusted_query = args[0] if args else kwargs["query"]
         prepare_query = getattr(defense, "prepare_query", None)
         if callable(prepare_query):
             if args:

@@ -195,10 +195,14 @@ def preflight_role(config, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--no-sandbox', action='store_true',
+                        help='disable learner sandbox for this run; record the override in the frozen snapshot')
     parser.add_argument('--frozen', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.frozen and args.no_sandbox:
+        parser.error("--no-sandbox must be applied before source freezing")
     path = args.config.resolve()
-    config = Config.load(path)
+    config = Config.load(path, ["sandbox.enabled=false"] if args.no_sandbox else [])
     root = Path(__file__).resolve().parents[3]
     if args.frozen:
         metadata = verify_snapshot(root)
@@ -207,9 +211,10 @@ def main():
         with interruption_handlers():
             run_measured(path, config, metadata)
         return
-    if config.run_dir().exists() or config.tree_dir('evosafe').exists():
+    if config.run_dir().exists() or config.tree_dir(config.data.get('evolver', {}).get('name', 'evosafe')).exists():
         raise SystemExit('choose fresh run and tree paths')
-    metadata = snapshot(root, path, config)
+    metadata = (snapshot(root, path, config, sandbox_enabled=False) if args.no_sandbox
+                else snapshot(root, path, config))
     frozen = Path(metadata['snapshot_root'])
     env = dict(os.environ, PYTHONPATH=str(frozen), PYTHONDONTWRITEBYTECODE='1',
                HERMIT_EPISODE_REGISTRY=str(frozen / '.episode-containers'),

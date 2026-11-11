@@ -7,7 +7,7 @@ import shutil
 from hermit.agent.evolver.base import Evolver, StepResult, ask
 from hermit.agent.evolver.methods.she.runtime import ARTIFACTS, SHE_REVISION, require_she
 from hermit.agent.evolver.methods.evosafe.evidence import summarize_case
-from hermit.agent.evolver.methods.evosafe.evolver import metrics
+from hermit.agent.evolver.methods.evosafe.roles import parent_reference, candidate_reference
 
 
 def bundle_digest(adapter):
@@ -116,24 +116,38 @@ def parse_object(content):
     return result
 
 
-def acceptance(parent, candidate, params):
-    """Strict Pareto gate: ASR cannot rise; neither utility can fall."""
-    margin = float(params.get("min_improvement", 0.0))
-    floor = float(params.get("min_clean_utility", 0.0))
+def evaluate(ctx, adapter, ids, tasks, *, parent):
+    """Require every planned ID; optionally compare opposite bounds on failed verdicts."""
+    rows = ctx.tools['run_agent'](task_ids=ids, adapter=str(adapter))['results']
+    if len(rows) != len(ids) or {r['id'] for r in rows} != set(ids):
+        raise ValueError('incomplete candidate evaluation')
+    reference = parent_reference if parent else candidate_reference
+    key = 'parent_error_policy' if parent else 'candidate_error_policy'
+    return reference(rows, tasks, policy=ctx.params.get(key, 'reject'))
+
+
+def acceptance(parent, candidate, params, initial=None):
+    """SHE best-so-far gate with an explicit native clean-utility guard."""
+    margin = float(params.get('min_improvement', 0.0))
+    floor = float(params.get('min_clean_utility', 0.0))
+    mode = params.get('gate_mode', 'strict_best')
+    if mode not in {'strict_best', 'initial_ua_floor'}:
+        raise ValueError('gate_mode must be strict_best or initial_ua_floor')
     if not 0 <= margin <= 1 or not 0 <= floor <= 1:
-        raise ValueError("min_improvement and min_clean_utility must be in [0, 1]")
-    return (candidate["clean_utility"] >= max(floor, parent["clean_utility"])
-            and candidate["injected_utility"] >= parent["injected_utility"]
-            and candidate["asr"] <= parent["asr"]
-            and (parent["asr"] - candidate["asr"] > margin
-                 or candidate["injected_utility"] - parent["injected_utility"] > margin
-                 or candidate["clean_utility"] - parent["clean_utility"] > margin))
+        raise ValueError('min_improvement and min_clean_utility must be in [0, 1]')
+    reference = (initial or parent) if mode == 'initial_ua_floor' else parent
+    score = lambda m: m['clean_utility'] + m['injected_utility'] - m['asr']
+    return (candidate['clean_utility'] >= max(floor, parent['clean_utility'])
+            and candidate['injected_utility'] >= reference['injected_utility']
+            and candidate['asr'] <= parent['asr']
+            and score(candidate) - score(parent) > margin + 1e-12)
 
 
 class SHEEvolver(Evolver):
     def step(self, ctx):
         ws, usage = ctx.workspace, []
         records, manifests, applied_manifests, patch = [], [], [], None
+        initial_reference = None
         feedback_path = ws.state / "she-feedback.json"
         report = {"accepted": False, "she_revision": SHE_REVISION,
                   "step": getattr(ctx.progress, "step", None)}
@@ -150,8 +164,10 @@ class SHEEvolver(Evolver):
 
             if ctx.access.validation is None:
                 raise ValueError("SHE requires a disjoint validation split")
-            ids = [json.loads(line)["id"] for line in (ctx.access.validation / "tasks.jsonl").read_text().splitlines()
-                   if line.strip()]
+            tasks = [json.loads(line) for line in (ctx.access.validation / "tasks.jsonl").read_text().splitlines()
+                     if line.strip()]
+            ids = [task["id"] for task in tasks]
+            tasks = {task["id"]: task for task in tasks}
             if not ids or len(ids) != len(set(ids)):
                 raise ValueError("validation IDs must be unique and nonempty")
             records = training_records(ws, int(ctx.params.get("evidence_chars_per_case", 8000)))
@@ -159,6 +175,7 @@ class SHEEvolver(Evolver):
                 raise ValueError("training and validation IDs overlap")
             (ws.output / "training-records.json").write_text(json.dumps(records, indent=2))
             previous = json.loads(feedback_path.read_text()) if feedback_path.is_file() else {}
+            initial_reference = previous.get("initial_reference")
             old_records = previous.get("records", [])
             diff = compute_iteration_diff(old_records, records)
             (ws.output / "iteration-diff.json").write_text(json.dumps(diff, indent=2))
@@ -231,7 +248,10 @@ class SHEEvolver(Evolver):
                     (ws.adapter / ".hermit" / "EVOLVER.md").read_text() +
                     f"\nChange at most {max_files} distinct artifact files; choose the smallest responsible component. "
                     "Return exactly JSON with changes and file_updates. Selection requires nonincreasing ASR, "
-                    "nondecreasing clean and injected utility, with at least one strictly improving."},
+                    "nondecreasing clean utility and injected utility above the configured reference. "
+                    f"Gate mode: {ctx.params.get('gate_mode', 'strict_best')}; "
+                    "the native selection score is clean utility + injected utility - ASR. "
+                    "AgentDyn has no unsafe-clean label: do not infer clean UBR from task failure."},
                     {"role": "user", "content": json.dumps({"artifacts": originals, "manifests": manifests,
                         "training_records": prompt_records(records), "iteration_diff": diff, "attribution": attribution,
                         "previous_trial": {k: previous.get(k) for k in ("accepted", "patch", "reason")},
@@ -259,10 +279,13 @@ class SHEEvolver(Evolver):
                     report["reason"] = "candidate failed specification check"
                 else:
                     report["eval_task_ids"] = ids
-                    report["parent"] = metrics(ctx, ws.adapter, ids)
-                    report["candidate"] = metrics(ctx, candidate, ids)
-                    report["accepted"] = acceptance(report["parent"], report["candidate"], ctx.params)
-                    report["reason"] = "Pareto improvement" if report["accepted"] else "no qualifying improvement"
+                    report["parent"] = evaluate(ctx, ws.adapter, ids, tasks, parent=True)
+                    if initial_reference is None:
+                        initial_reference = report["parent"]
+                    report["initial_reference"] = initial_reference
+                    report["candidate"] = evaluate(ctx, candidate, ids, tasks, parent=False)
+                    report["accepted"] = acceptance(report["parent"], report["candidate"], ctx.params, initial_reference)
+                    report["reason"] = "SHE best-so-far improvement" if report["accepted"] else "no qualifying improvement"
                     if report["accepted"]:
                         try:
                             for name in originals:
@@ -278,7 +301,7 @@ class SHEEvolver(Evolver):
         if records:
             feedback_path.write_text(json.dumps({"records": records, "manifests": applied_manifests, "patch": patch,
                 "accepted": report["accepted"], "reason": report.get("reason", report.get("error")),
-                "adapter_sha256": bundle_digest(ws.adapter)}, indent=2))
+                "initial_reference": initial_reference, "adapter_sha256": bundle_digest(ws.adapter)}, indent=2))
         with (ws.state / "she.jsonl").open("a") as stream:
             stream.write(json.dumps(report) + "\n")
         (ws.output / "selection.json").write_text(json.dumps(report, indent=2))

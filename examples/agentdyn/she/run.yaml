@@ -13,12 +13,12 @@ agent:
   timeout_min: 10
   params:
     benchmark_version: v1.2.2
-    max_iters: 15
+    max_iters: 25
     logs: runs/she-episodes
     hook_runtime: she
     episode_timeout_s: 900
   base: direct
-  model: openai/gpt-4o-mini-2024-07-18
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
 judge:
   path: ../utils/judge.py
 evolver:
@@ -30,17 +30,12 @@ evolver:
     min_clean_utility: 0.0
     min_improvement: 0.0
 llm: null
+environment:
+  runner: host
 sandbox:
-  enabled: true
   enforce: required
-  network: isolated
-  allow:
-  - api.openai.com
-  profiles:
-    rollout:
-      network: isolated
-      allow:
-      - api.openai.com
+  evolver:
+    allowed_hosts: [your-model-service.example]
 trainer:
   run_name: agentdyn-she
   output_dir: runs
