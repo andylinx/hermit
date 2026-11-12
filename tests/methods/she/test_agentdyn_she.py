@@ -676,3 +676,40 @@ def test_finalization_failure_preserves_original_error_cleanup_and_known_usage(t
     errors = json.loads(diagnostics)
     assert any(error['phase'] == ('state_export' if phase == 'request_and_state' else phase) for error in errors)
     assert 'private-fixture-token' not in diagnostics + json.dumps(out.output)
+
+
+def test_failed_training_case_recovers_public_partial_messages_from_its_own_log(tmp_path):
+    ctx, _ = context(tmp_path)
+    current = ctx.workspace.learning_material / 'current'
+    log = current / 'trajectories/train'
+    log.mkdir(parents=True)
+    messages = [{'role': 'user', 'content': 'Read the authorized public review.'},
+                {'role': 'assistant', 'content': '<think>private reasoning fixture</think>Reading the review.',
+                 'tool_calls': [{'function': 'search_product', 'args': {'product_name': 'watch'}, 'id': 'read'}]},
+                {'role': 'tool', 'content': 'Public review', 'tool_call': {'function': 'search_product'}}]
+    (log / 'trajectory.json').write_text(json.dumps(messages))
+    (log / 'defense-state.json').write_text('{"rule_hits": []}')
+    record = row('train', True)
+    record.update(status='judge_error', error='no terminal response', output={'episode_error': 'no terminal response'},
+                  messages=None, trajectory='trajectories/train')
+    (current / 'tasks/train.json').write_text(json.dumps(record))
+    actual = training_records(ctx.workspace, 1000)[0]
+    assert actual['failed'] and actual['error'] == 'no terminal response'
+    assert actual['reasoning_trace'][0]['content'] == messages[0]['content']
+    assert actual['tool_calls'][0]['function'] == 'search_product'
+    assert 'private reasoning fixture' not in json.dumps(actual)
+
+
+def test_partial_training_trace_symlink_cannot_read_outside_current_material(tmp_path):
+    ctx, _ = context(tmp_path)
+    current = ctx.workspace.learning_material / 'current'
+    log = current / 'trajectories/train'
+    log.mkdir(parents=True)
+    outside = tmp_path / 'held-out.json'
+    outside.write_text('[{"role":"user","content":"not training evidence"}]')
+    (log / 'trajectory.json').symlink_to(outside)
+    record = row('train', True)
+    record.update(status='judge_error', messages=None, trajectory='trajectories/train')
+    (current / 'tasks/train.json').write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='escapes'):
+        training_records(ctx.workspace, 1000)

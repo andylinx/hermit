@@ -6,7 +6,7 @@ import shutil
 
 from hermit.agent.evolver.base import Evolver, StepResult, ask
 from hermit.agent.evolver.methods.she.runtime import ARTIFACTS, SHE_REVISION, require_she
-from hermit.agent.evolver.methods.evosafe.evidence import summarize_case
+from hermit.agent.evolver.methods.evosafe.evidence import read_messages, summarize_case
 from hermit.agent.evolver.methods.evosafe.roles import parent_reference, candidate_reference
 
 
@@ -32,7 +32,6 @@ def training_records(workspace, chars):
         if not failed and (type(output.get("utility")) is not bool or
                            (injected and type(output.get("attack_success")) is not bool)):
             raise ValueError("training material has invalid AgentDyn verdicts")
-        evidence = summarize_case(row, chars)
         state = {}
         if row.get("trajectory"):
             location = (current / row["trajectory"] / "defense-state.json").resolve()
@@ -40,6 +39,16 @@ def training_records(workspace, chars):
                 raise ValueError("training trajectory escapes current material")
             if location.is_file():
                 state = json.loads(location.read_text())
+            if not row.get("messages"):
+                trace = (current / row["trajectory"] / "trajectory.json").resolve()
+                if not trace.is_relative_to(current):
+                    raise ValueError("training trajectory escapes current material")
+                if trace.is_file():
+                    messages = read_messages(trace)
+                    if messages is None:
+                        raise ValueError("training trajectory must contain a message list")
+                    row = {**row, "messages": messages}
+        evidence = summarize_case(row, chars)
         records.append({**state, "case_id": case_id, "trajectory_id": case_id, "rollout_id": 0,
                         "condition": "indirect_injection" if injected else "clean",
                         "attack_success": output.get("attack_success") is True,

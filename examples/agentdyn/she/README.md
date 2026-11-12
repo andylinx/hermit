@@ -90,7 +90,8 @@ specification checks run unconfined only for repository-owned test fixtures; pla
 
 Per-round outputs retain `training-records.json`, diagnoses, routes, manifests, patch, candidate,
 `iteration-diff.json`, `attribution.json` and `selection.json`. State retains `she-feedback.json`, including the
-initial reference and installed artifact hash. Episode logs include native trajectories, tool audit,
+initial reference and installed artifact hash. Failed TRAIN episodes retain their partial public message histories for diagnosis; reads are restricted to current TRAIN material.
+Episode logs include native trajectories, tool audit,
 `defense-state.json`, semantic-judge calls and metered usage. Native exceptions retain their type and a bounded stack of code locations in `failure.json`, without exception
 text, source lines or local variables. State-export and cleanup failures are recorded separately in
 `finalization-errors.json`; they preserve the original episode error, close remaining clients and retain known
