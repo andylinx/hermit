@@ -53,6 +53,7 @@ METHODS = {
 # group -> the other groups whose tests read its files (tests/core/test_selection.py finds a method's tests naming
 # another group's directory)
 READ_BY = {"optimizers": {"ahe"},                       # the AHE example's configs match GEPA's and SkillOpt's
+           "she": {"evosafe"},                         # AgentDyn runner tests freeze SHE configs
            "evosafe": {"she"},                         # SHE reuses the CLI roles and verdict contract
            "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
