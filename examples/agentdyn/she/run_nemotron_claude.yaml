@@ -52,6 +52,7 @@ sandbox:
   evolver:
     allowed_hosts: [api.anthropic.com]
 trainer:
+  allow_early_stop: true
   run_name: agentdyn-she-lightning-claude
   output_dir: runs
   epochs: 20

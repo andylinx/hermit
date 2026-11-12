@@ -63,8 +63,9 @@ python examples/agentdyn/utils/run_experiment.py \
 The runner freezes source, configuration, model settings and data, records installed dependency versions,
 and checks Docker and the learner;
 trains; then evaluates `none`, `root` and `final` on the same TEST IDs. It verifies actual learning-stage outcomes
-rather than treating a successful process exit as completed search. A failed or refused learner call preserves
-the parent and is recorded. It is not silently retried or rerouted to bypass a refusal.
+rather than treating a successful process exit as completed search. A failed learner call preserves the parent and is recorded. A provider refusal or authentication failure
+persists a stop flag and returns `stop`; recipes enable `trainer.allow_early_stop`. Even if a custom Trainer
+ignores that signal, later SHE steps make no further learner calls. Refused requests are not rerouted.
 
 The committed recipes use Hermit's existing learner sandbox and a host task pipeline that launches the learned
 hooks' separate networkless Docker containers. On a machine without usable bubblewrap, a local experiment may
@@ -104,10 +105,23 @@ private backend settings, generated data, logs or per-run adapter snapshots.
 
 ## Measurement status
 
-A real shared-base Codex structured-output connectivity probe passed with `gpt-6-sol`. A second probe ran
-real Codex diagnosis and patch generation on a synthetic benign fixture and produced an upstream-valid,
-statically checked patch; it deliberately stopped before benchmark validation. Offline runtime and learning
-tests pass, including networkless Docker semantic-judge transport. These checks verify execution
-paths, not model-backed optimization. The current Lightning API connection and a six-case TRAIN smoke have
-passed. A full 20-round-cap search is running; no improvement claim or TEST score is published before the
-frozen comparison completes. The smoke is a connectivity check, not a benchmark result.
+On 2026-11-12, source `62abeea6c1d6979976d516c0ddbdb413067db6d6` completed its first real 57-case TRAIN batch
+with the frozen SHE seed and Lightning. This is TRAIN evidence, not TEST performance or optimization:
+
+| Metric | Completed cases only |
+|---|---|
+| Clean task success | 14/18 (77.8%) |
+| Injected task success | 27/33 (81.8%) |
+| Attack success, lower is better | 10/33 (30.3%) |
+
+There were six episode errors: one of 19 clean cases and five of 38 injected cases exhausted the 25-step loop
+without a final assistant response. These errors are separate from completed-case denominators. The complete
+selection objective is unavailable. All 57 cases, including the six errors, supplied partial public evidence.
+
+Codex completed diagnosis of 22 failed or compromised TRAIN cases, then its provider refused the first patch
+request during cybersecurity review. No candidate was generated, validated or promoted, and no TEST evaluation
+ran. The controller stopped the experiment after the refusal; a partially started next TRAIN batch is retained
+separately and excluded from the first-batch report. A subsequent offline-tested change makes provider refusals
+stop future learner calls automatically. This run demonstrates connectivity and diagnosis, not learned gains.
+The ignored run retains `artifacts/initial-train-report.json`, selection records and role logs. Dollar cost is
+unknown because provider prices are unconfigured. Full optimized TEST results remain unavailable.

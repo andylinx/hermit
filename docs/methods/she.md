@@ -104,9 +104,11 @@ to held-out trajectories are not part of the learner contract.
 The runner evaluates `none`, `root` and `final` only after training completes, with identical frozen acting
 settings and TEST IDs. Reports show utility, attack success, coverage and errors separately. A partial-run
 objective is unavailable. Single-pass scores are descriptive because variants share user-task groups.
-The Lightning endpoint and TRAIN connectivity checks pass; full search and frozen evaluation are running.
-Optimization results remain pending until that experiment completes. Offline tests and connectivity probes
-do not establish improvement.
+The first real Lightning TRAIN batch completed, but the Codex provider refused patch generation. No candidate
+was promoted and no TEST evaluation ran. The example reports the measured TRAIN fractions and errors; these
+do not establish optimization. Provider refusals and authentication failures persist a stop flag and return
+`stop`; recipes enable the Trainer's existing early-stop control. Later SHE steps do not repeat those requests
+even when a custom Trainer ignores early stopping.
 
 ```{literalinclude} ../../hermit/agent/evolver/methods/she/evolver.yaml
 :language: yaml

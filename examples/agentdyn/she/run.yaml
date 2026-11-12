@@ -37,6 +37,7 @@ sandbox:
   evolver:
     allowed_hosts: [your-model-service.example]
 trainer:
+  allow_early_stop: true
   run_name: agentdyn-she
   output_dir: runs
   epochs: 1

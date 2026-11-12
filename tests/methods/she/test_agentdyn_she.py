@@ -713,3 +713,25 @@ def test_partial_training_trace_symlink_cannot_read_outside_current_material(tmp
     (current / 'tasks/train.json').write_text(json.dumps(record))
     with pytest.raises(ValueError, match='escapes'):
         training_records(ctx.workspace, 1000)
+
+
+@pytest.mark.parametrize('prefix', ['SAFETY_REVIEW_REFUSAL:', 'ROLE_AUTHENTICATION_ERROR:'])
+def test_terminal_provider_error_stops_and_is_not_repeated_next_round(tmp_path, monkeypatch, prefix):
+    ctx, evaluations = context(tmp_path)
+    ctx.params['backend'] = 'codex'
+    original = {n: (ctx.workspace.adapter / 'artifacts' / n).read_bytes() for n in ARTIFACTS}
+    attempts = []
+    usage = [{'model': 'fixture', 'input_tokens': 3, 'output_tokens': 0, 'calls': 1}]
+
+    def blocked(*args, **kwargs):
+        attempts.append(True)
+        return None, usage, prefix + ' operator intervention required'
+
+    monkeypatch.setattr('hermit.agent.evolver.methods.evosafe.codex.call_role', blocked)
+    first = SHEEvolver().step(ctx)
+    assert first.status == 'stop' and prefix in first.extra['error']
+    assert first.usage == usage
+    second = SHEEvolver().step(replace(ctx, progress=Progress(2, 2, True)))
+    assert second.status == 'stop' and prefix in second.extra['error']
+    assert len(attempts) == 1 and not evaluations
+    assert original == {n: (ctx.workspace.adapter / 'artifacts' / n).read_bytes() for n in ARTIFACTS}

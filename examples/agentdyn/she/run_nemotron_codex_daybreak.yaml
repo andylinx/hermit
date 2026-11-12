@@ -78,6 +78,7 @@ sandbox:
     - auth.openai.com
     - api.openai.com
 trainer:
+  allow_early_stop: true
   run_name: agentdyn-she-lightning-codex-daybreak
   output_dir: runs
   epochs: 20

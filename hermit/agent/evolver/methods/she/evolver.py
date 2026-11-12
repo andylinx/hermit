@@ -7,7 +7,9 @@ import shutil
 from hermit.agent.evolver.base import Evolver, StepResult, ask
 from hermit.agent.evolver.methods.she.runtime import ARTIFACTS, SHE_REVISION, require_she
 from hermit.agent.evolver.methods.evosafe.evidence import read_messages, summarize_case
-from hermit.agent.evolver.methods.evosafe.roles import parent_reference, candidate_reference
+from hermit.agent.evolver.methods.evosafe.roles import (
+    RoleAuthenticationError, RoleSafetyRefusal, parent_reference, candidate_reference,
+)
 
 
 def bundle_digest(adapter):
@@ -87,6 +89,10 @@ def call_model(ctx, messages, name, usage, schema=None):
     response, used, error = call_role(ctx, messages, schema, name)
     usage.extend(used)
     if error:
+        if error.startswith("SAFETY_REVIEW_REFUSAL:"):
+            raise RoleSafetyRefusal(error)
+        if error.startswith("ROLE_AUTHENTICATION_ERROR:"):
+            raise RoleAuthenticationError(error)
         raise RuntimeError(error)
     return json.loads(response["content"])["payload"] if envelope else response["content"]
 
@@ -161,6 +167,12 @@ class SHEEvolver(Evolver):
         report = {"accepted": False, "she_revision": SHE_REVISION,
                   "step": getattr(ctx.progress, "step", None)}
         try:
+            previous = json.loads(feedback_path.read_text()) if feedback_path.is_file() else {}
+            if previous.get("halt_error"):
+                report.update(error=previous["halt_error"], terminal_error=True,
+                              stop_reason="operator intervention required")
+                (ws.output / "selection.json").write_text(json.dumps(report, indent=2))
+                return StepResult("stop", "SHE search remains stopped after provider error", extra=report)
             require_she()
             from she.evolution.safety_debugger import diagnose_records
             from she.evolution.evolve_agent import propose_patch_manifests
@@ -183,7 +195,6 @@ class SHEEvolver(Evolver):
             if set(ids) & {r["case_id"] for r in records}:
                 raise ValueError("training and validation IDs overlap")
             (ws.output / "training-records.json").write_text(json.dumps(records, indent=2))
-            previous = json.loads(feedback_path.read_text()) if feedback_path.is_file() else {}
             initial_reference = previous.get("initial_reference")
             old_records = previous.get("records", [])
             diff = compute_iteration_diff(old_records, records)
@@ -306,14 +317,17 @@ class SHEEvolver(Evolver):
         except Exception as exc:
             report["accepted"] = False
             report["error"] = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, (RoleSafetyRefusal, RoleAuthenticationError)):
+                report.update(terminal_error=True, stop_reason="operator intervention required")
         ws.state.mkdir(parents=True, exist_ok=True)
         if records:
             feedback_path.write_text(json.dumps({"records": records, "manifests": applied_manifests, "patch": patch,
                 "accepted": report["accepted"], "reason": report.get("reason", report.get("error")),
+                "halt_error": report.get("error") if report.get("terminal_error") else None,
                 "initial_reference": initial_reference, "adapter_sha256": bundle_digest(ws.adapter)}, indent=2))
         with (ws.state / "she.jsonl").open("a") as stream:
             stream.write(json.dumps(report) + "\n")
         (ws.output / "selection.json").write_text(json.dumps(report, indent=2))
-        return StepResult("failed" if "error" in report else "done",
+        return StepResult("stop" if report.get("terminal_error") else "failed" if "error" in report else "done",
                           "accepted SHE candidate" if report["accepted"] else "kept parent SHE harness",
                           extra=report, usage=usage)
