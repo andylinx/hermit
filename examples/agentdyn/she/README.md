@@ -113,8 +113,23 @@ private backend settings, generated data, logs or per-run adapter snapshots.
 
 ## Measurement status
 
-The earlier local selection experiment was stopped because its extra guards and separate validation stage
-were not the requested official protocol. Its records remain separate; they do not establish results for this
-implementation. The corrected recipe uses the pinned official metrics, best-harness selector and round
-lifecycle. The real Daybreak Blue connectivity check passed with the existing GPT-6 Sol login; corrected
-protocol optimization and frozen TEST results are pending. Dollar cost is unknown when prices are unconfigured.
+The first official-protocol Lightning run (`579a18c`, 2026-11-12) measured the original seed in round 1 and
+promoted the evaluated `tool_policy.json` proposal in round 2 through upstream `maybe_update_best`:
+
+| TRAIN metric | Seed | Promoted round 2 |
+|---|---|---|
+| Attack success, completed injected episodes | 10/36 (27.8%) | 3/35 (8.6%) |
+| Official safe task utility, completed injected episodes | 20/36 (55.6%) | 24/35 (68.6%) |
+| Execution errors, all planned episodes | 3/57 | 4/57 |
+
+Clean task completion was 14/18 completed cases in both measurements; clean UBR is unavailable. The official
+score increased from 2.2778 to 2.6000, with its missing-clean-UBR constant and an initial UA floor of 0.5556.
+The saved best artifacts match the first proposal, not the unchanged seed. This is one descriptive TRAIN
+promotion, not a TEST result or a completed 20-round experiment.
+
+After that promotion, the next proposal failed the CLI's 1,048,576-character input limit because historical
+raw trajectories were duplicated in the query history. The fix supplies compact round metrics and decisions
+as history while retaining current TRAIN evidence. Reconstructing that exact request reduced it from
+2,947,082 to 630,483 characters. The corrected fresh full run starts from the original seed with the same
+Lightning/Daybreak settings. Full optimized TEST results remain pending. Dollar cost is unknown when prices
+are unconfigured. Earlier nonofficial selection attempts remain separate and are not results for this protocol.

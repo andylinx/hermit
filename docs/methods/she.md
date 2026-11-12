@@ -71,7 +71,7 @@ carriers remain constrained by upstream patch validation and the fixed execution
 | Round lifecycle | TRAIN measurement, best update, restore rejected artifacts, propose next patch, finalize best; no extra selection split |
 | Diagnosis | Upstream routing/taxonomy and prompt; typed shared-CLI responses replace the benchmark-specific client transport |
 | Proposal | Upstream query builder, manifests, patch normalization, validation and application; fixed Python |
-| History | Upstream diffs and attribution over actually observed TRAIN pairs; best records and pending artifact hashes retain provenance |
+| History | Upstream diffs and attribution over actually observed TRAIN pairs; best records and pending artifact hashes retain provenance; query history contains compact round metrics/decisions rather than duplicated raw traces |
 | Data | 57 fixed TRAIN and 186 frozen TEST cases; one attempt per case, clean and indirect injection only |
 | Models | Lightning actor and semantic judge; GPT-6 Sol Codex for diagnosis and patching, with an optional explicit Daybreak Blue request |
 | Unavailable features | Benchmark-specific signed registry, harmful-clean labels, six conditions, Bayesian reports and paper-score comparability |
@@ -95,7 +95,8 @@ selection metric is retained separately. One pass is descriptive, with correlate
 
 Focused tests exercise upstream metric/selector parity, error denominators, unsafe-task utility exclusion,
 TRAIN-only selection, promotion in a subsequent measured round, rejection rollback, measured-best finalization,
-shared CLI/Docker transport and cancellation. Real results for this corrected official protocol are pending.
+shared CLI/Docker transport and cancellation. The first official run promoted a measured TRAIN candidate in round 2; the example reports counts and the
+subsequent history-input failure. A fresh full run uses the history fix. Frozen TEST results remain pending.
 
 ```{literalinclude} ../../hermit/agent/evolver/methods/she/evolver.yaml
 :language: yaml

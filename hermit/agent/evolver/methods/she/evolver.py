@@ -184,6 +184,23 @@ def official_settings(params):
                 os.environ[key] = value
 
 
+def history_summary(state):
+    """Round history is metrics and decisions, not duplicated raw TRAIN trajectories."""
+    path = state / "she.jsonl"
+    if not path.is_file():
+        return "No previous rounds."
+    history = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        best = row.get("best_update") or {}
+        history.append({"step": row.get("step"), "accepted": row.get("accepted"),
+                        "score": best.get("score"), "acceptance_gate": best.get("acceptance_gate"),
+                        "reason": row.get("reason"), "error": row.get("error")})
+    return json.dumps(history)
+
+
 class SHEEvolver(Evolver):
     def step(self, ctx):
         ws, usage = ctx.workspace, []
@@ -290,7 +307,7 @@ class SHEEvolver(Evolver):
                 query = build_evolution_query(
                     round_id=str(report["step"]), metrics_json=json.dumps(metrics),
                     overview_md=(ws.output / "diagnosis/overview.md").read_text(),
-                    attribution_report=json.dumps(attribution), history_md=json.dumps(previous),
+                    attribution_report=json.dumps(attribution), history_md=history_summary(ws.state),
                     iteration_diff_report=json.dumps(diff), best_update=report["best_update"])
             (ws.output / "evolution-query.md").write_text(query)
             messages = [{"role": "system", "content": EVOLVE_AGENT_SYSTEM_PROMPT + "\n" +

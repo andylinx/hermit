@@ -17,7 +17,7 @@ agent:
     temperature: 0.0
     request_timeout_s: 120
     max_retries: 4
-    logs: runs/she-lightning-codex-daybreak-official-episodes
+    logs: runs/she-lightning-codex-daybreak-official-r2-episodes
     hook_runtime: she
     episode_timeout_s: 900
     hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
@@ -73,10 +73,10 @@ sandbox:
     - api.openai.com
 trainer:
   allow_early_stop: true
-  run_name: agentdyn-she-lightning-codex-daybreak-official
+  run_name: agentdyn-she-lightning-codex-daybreak-official-r2
   output_dir: runs
   epochs: 20
   call_timeout_min: 480
   budget:
     hours: 12
-  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak-official
+  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak-official-r2

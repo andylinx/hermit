@@ -761,3 +761,29 @@ def test_terminal_provider_error_stops_and_is_not_repeated_next_round(tmp_path, 
     assert second.status == 'stop' and prefix in second.extra['error']
     assert len(attempts) == 1 and not evaluations
     assert original == {n: (ctx.workspace.adapter / 'artifacts' / n).read_bytes() for n in ARTIFACTS}
+
+
+def test_later_proposal_keeps_current_evidence_without_repeating_old_trajectories(tmp_path):
+    ctx, _ = context(tmp_path)
+    task = ctx.workspace.learning_material / 'current/tasks/train.json'
+    first = row('train', False, attack=True)
+    first['messages'] = [{'role': 'tool', 'content': 'old-only-evidence'}]
+    task.write_text(json.dumps(first))
+    prompts = []
+    proposal = ctx.tools['llm']
+    def capture(**kwargs):
+        prompts.append(kwargs['messages'][-1]['content'])
+        return proposal(**kwargs)
+    ctx.tools['llm'] = capture
+    assert SHEEvolver().step(ctx).status == 'done'
+    second = row('train', False, attack=True)
+    second['messages'] = [{'role': 'tool', 'content': 'current-only-evidence'}]
+    task.write_text(json.dumps(second))
+    assert SHEEvolver().step(replace(ctx, progress=Progress(2, 2, True))).status == 'done'
+    assert 'old-only-evidence' in prompts[0]
+    assert 'old-only-evidence' not in prompts[1]
+    assert 'current-only-evidence' in prompts[1]
+    from hermit.agent.evolver.methods.she.evolver import history_summary
+    summary = json.loads(history_summary(ctx.workspace.state))
+    assert [r['step'] for r in summary] == [1, 2]
+    assert all(r['score'] is not None for r in summary)
