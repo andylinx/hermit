@@ -104,8 +104,9 @@ to held-out trajectories are not part of the learner contract.
 The runner evaluates `none`, `root` and `final` only after training completes, with identical frozen acting
 settings and TEST IDs. Reports show utility, attack success, coverage and errors separately. A partial-run
 objective is unavailable. Single-pass scores are descriptive because variants share user-task groups.
-Live Lightning optimization results remain pending until the current model endpoint is configured and the
-measured experiment completes; the offline tests and Codex connectivity probe do not establish improvement.
+The Lightning endpoint and TRAIN connectivity checks pass; full search and frozen evaluation are running.
+Optimization results remain pending until that experiment completes. Offline tests and connectivity probes
+do not establish improvement.
 
 ```{literalinclude} ../../hermit/agent/evolver/methods/she/evolver.yaml
 :language: yaml

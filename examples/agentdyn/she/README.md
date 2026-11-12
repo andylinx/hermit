@@ -90,8 +90,9 @@ specification checks run unconfined only for repository-owned test fixtures; pla
 
 Per-round outputs retain `training-records.json`, diagnoses, routes, manifests, patch, candidate,
 `iteration-diff.json`, `attribution.json` and `selection.json`. State retains `she-feedback.json`, including the
-initial reference and installed artifact hash. Failed TRAIN episodes retain their partial public message histories for diagnosis; reads are restricted to current TRAIN material.
-Episode logs include native trajectories, tool audit,
+initial reference and installed artifact hash. Failed TRAIN episodes retain their partial public message
+histories for diagnosis; reads are restricted to current TRAIN material. Episode logs include native trajectories,
+tool audit,
 `defense-state.json`, semantic-judge calls and metered usage. Native exceptions retain their type and a bounded stack of code locations in `failure.json`, without exception
 text, source lines or local variables. State-export and cleanup failures are recorded separately in
 `finalization-errors.json`; they preserve the original episode error, close remaining clients and retain known
@@ -107,5 +108,6 @@ A real shared-base Codex structured-output connectivity probe passed with `gpt-6
 real Codex diagnosis and patch generation on a synthetic benign fixture and produced an upstream-valid,
 statically checked patch; it deliberately stopped before benchmark validation. Offline runtime and learning
 tests pass, including networkless Docker semantic-judge transport. These checks verify execution
-paths, not model-backed optimization. The current Lightning experiment still requires its configured victim
-credentials; no improvement claim or replacement score is published before full measured evaluation.
+paths, not model-backed optimization. The current Lightning API connection and a six-case TRAIN smoke have
+passed. A full 20-round-cap search is running; no improvement claim or TEST score is published before the
+frozen comparison completes. The smoke is a connectivity check, not a benchmark result.
