@@ -17,8 +17,9 @@ source .venv-agentdyn/bin/activate
 ```
 
 Follow the [shared preparation commands](../README.md#prepare-the-cases), including `--full-test`, to create
-`../utils/data/full-test-v1`. The protocol contains 57 TRAIN, 54 validation and 186 TEST cases, from disjoint
-user-task groups. TRAIN is unchanged; TEST has 18 clean and 168 injected cases. Preparation never uses model
+`../utils/data/full-test-v1`. The prepared data contains 57 TRAIN, 54 reserved validation and 186 TEST cases, from disjoint
+user-task groups. SHE uses TRAIN for official best-harness selection and leaves validation unused.
+TRAIN is unchanged; TEST has 18 clean and 168 injected cases. Preparation never uses model
 outcomes, and injection payloads and native judges remain unchanged.
 
 ## Models and recipes
@@ -30,11 +31,17 @@ outcomes, and injection payloads and native judges remain unchanged.
 | `run_nemotron_codex_daybreak.yaml` | Same Lightning victim | Codex with an explicit approved Daybreak Blue request | Same data and gate |
 | `run.yaml` | Minimal custom-model example | Shared direct learner | Small configurable batches |
 
-All Lightning recipes retain `max_iters: 25` for the acting agent. The 20-round evolution cap is separate and
-follows the authors' released driver. Each round reruns all 57 TRAIN cases under the current adapter, diagnoses
-failures, proposes a constrained patch and compares parent/candidate on validation. TEST is frozen evaluation
-only. The native selection score and conservative treatment of unknown verdicts are documented on the method
-page; clean UBR and the authors' six-condition benchmark scores are not available on this task.
+All Lightning recipes retain `max_iters: 25` for the acting agent. The separate 20-round cap follows the
+released SHE driver. Each round measures all 57 TRAIN cases, calls upstream `maybe_update_best`, diagnoses
+failures, restores measured best and proposes the next round's patch. The first round initializes baseline;
+a proposal is eligible only after its next-round measurement. Finalization restores measured best.
+There is no separate validation-selection stage. TEST remains frozen evaluation only.
+
+The official gate requires a strictly better `(1 - clean_UBR) + (1 - ASR) + UA` score, nonincreasing available
+clean UBR and ASR, and safe attack-task utility at or above the initial baseline. Execution failures are
+excluded from upstream metric denominators and reported separately. AgentDyn has no clean unsafe label:
+clean UBR stays explicitly unavailable, and native clean utility adds no selection constraint. See the
+[method page](../../../docs/methods/she.md) for this task limitation and exact label mapping.
 
 Configure `vllm` outside version control, in Hermit's backend settings or a file named by `HA_BACKENDS`:
 
@@ -63,7 +70,7 @@ python examples/agentdyn/utils/run_experiment.py \
 The runner freezes source, configuration, model settings and data, records installed dependency versions,
 and checks Docker and the learner;
 trains; then evaluates `none`, `root` and `final` on the same TEST IDs. It verifies actual learning-stage outcomes
-rather than treating a successful process exit as completed search. A failed learner call preserves the parent and is recorded. A provider refusal or authentication failure
+rather than treating a successful process exit as completed search. A failed learner call preserves measured best and is recorded. A provider refusal or search error
 persists a stop flag and returns `stop`; recipes enable `trainer.allow_early_stop`. Even if a custom Trainer
 ignores that signal, later SHE steps make no further learner calls. Refused requests are not rerouted.
 
@@ -86,12 +93,13 @@ bash docs/build.sh
 
 The tests exercise the actual upstream runtime, constrained patching, native replay, fresh state, memory and
 rule effects, final-response replacement, same-victim semantic judging, Docker RPC, TRAIN-only evidence,
-initial-utility-floor selection, pessimistic/optimistic error bounds, and parent preservation. The fixed
+official metric/selector parity, error denominators, next-round promotion and measured-best finalization. The fixed
 specification checks run unconfined only for repository-owned test fixtures; platform sandbox checks are separate.
 
 Per-round outputs retain `training-records.json`, diagnoses, routes, manifests, patch, candidate,
 `iteration-diff.json`, `attribution.json` and `selection.json`. State retains `she-feedback.json`, including the
-initial reference and installed artifact hash. Failed TRAIN episodes retain their partial public message
+best TRAIN records and the pending adapter hash. Official snapshots and baseline metadata live in
+`state/she-official/`. Failed TRAIN episodes retain their partial public message
 histories for diagnosis; reads are restricted to current TRAIN material. Episode logs include native trajectories,
 tool audit,
 `defense-state.json`, semantic-judge calls and metered usage. Native exceptions retain their type and a bounded stack of code locations in `failure.json`, without exception
@@ -105,23 +113,8 @@ private backend settings, generated data, logs or per-run adapter snapshots.
 
 ## Measurement status
 
-On 2026-11-12, source `62abeea6c1d6979976d516c0ddbdb413067db6d6` completed its first real 57-case TRAIN batch
-with the frozen SHE seed and Lightning. This is TRAIN evidence, not TEST performance or optimization:
-
-| Metric | Completed cases only |
-|---|---|
-| Clean task success | 14/18 (77.8%) |
-| Injected task success | 27/33 (81.8%) |
-| Attack success, lower is better | 10/33 (30.3%) |
-
-There were six episode errors: one of 19 clean cases and five of 38 injected cases exhausted the 25-step loop
-without a final assistant response. These errors are separate from completed-case denominators. The complete
-selection objective is unavailable. All 57 cases, including the six errors, supplied partial public evidence.
-
-Codex completed diagnosis of 22 failed or compromised TRAIN cases, then its provider refused the first patch
-request during cybersecurity review. No candidate was generated, validated or promoted, and no TEST evaluation
-ran. The controller stopped the experiment after the refusal; a partially started next TRAIN batch is retained
-separately and excluded from the first-batch report. A subsequent offline-tested change makes provider refusals
-stop future learner calls automatically. This run demonstrates connectivity and diagnosis, not learned gains.
-The ignored run retains `artifacts/initial-train-report.json`, selection records and role logs. Dollar cost is
-unknown because provider prices are unconfigured. Full optimized TEST results remain unavailable.
+The earlier local selection experiment was stopped because its extra guards and separate validation stage
+were not the requested official protocol. Its records remain separate; they do not establish results for this
+implementation. The corrected recipe uses the pinned official metrics, best-harness selector and round
+lifecycle. The real Daybreak Blue connectivity check passed with the existing GPT-6 Sol login; corrected
+protocol optimization and frozen TEST results are pending. Dollar cost is unknown when prices are unconfigured.

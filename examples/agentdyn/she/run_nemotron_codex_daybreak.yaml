@@ -1,7 +1,6 @@
 data:
   tasks: ../utils/data/full-test-v1/tasks.jsonl
   train: ../utils/data/full-test-v1/train.txt
-  val: ../utils/data/full-test-v1/val.txt
   test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
@@ -18,7 +17,7 @@ agent:
     temperature: 0.0
     request_timeout_s: 120
     max_retries: 4
-    logs: runs/she-lightning-codex-daybreak-episodes
+    logs: runs/she-lightning-codex-daybreak-official-episodes
     hook_runtime: she
     episode_timeout_s: 900
     hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
@@ -37,12 +36,7 @@ evolver:
   params:
     debugger: llm
     claude_timeout_s: 1500
-    max_updated_artifacts: 1
     gate_mode: initial_ua_floor
-    parent_error_policy: conservative_bounds
-    candidate_error_policy: worst_case_bounds
-    min_clean_utility: 0.0
-    min_improvement: 0.0
   base: codex
   codex:
     model: gpt-6-sol
@@ -79,10 +73,10 @@ sandbox:
     - api.openai.com
 trainer:
   allow_early_stop: true
-  run_name: agentdyn-she-lightning-codex-daybreak
+  run_name: agentdyn-she-lightning-codex-daybreak-official
   output_dir: runs
   epochs: 20
   call_timeout_min: 480
   budget:
     hours: 12
-  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak
+  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak-official

@@ -1,9 +1,8 @@
 data:
   tasks: ../utils/data/tasks.jsonl
   train: ../utils/data/train.txt
-  val: ../utils/data/val.txt
   test: ../utils/data/test.txt
-  step_size: 4
+  step_size: 57
   shuffle: false
 task_info: ../utils/task-info
 template: she@1.0
@@ -26,9 +25,6 @@ evolver:
   params:
     proposer: llm
     debugger: llm
-    max_updated_artifacts: 1
-    min_clean_utility: 0.0
-    min_improvement: 0.0
 llm: null
 environment:
   runner: host
@@ -40,7 +36,7 @@ trainer:
   allow_early_stop: true
   run_name: agentdyn-she
   output_dir: runs
-  epochs: 1
+  epochs: 20
   call_timeout_min: 30
   budget:
     hours: 1

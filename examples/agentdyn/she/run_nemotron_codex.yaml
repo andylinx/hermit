@@ -1,7 +1,6 @@
 data:
   tasks: ../utils/data/full-test-v1/tasks.jsonl
   train: ../utils/data/full-test-v1/train.txt
-  val: ../utils/data/full-test-v1/val.txt
   test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
@@ -37,12 +36,7 @@ evolver:
   params:
     debugger: llm
     claude_timeout_s: 1500
-    max_updated_artifacts: 1
     gate_mode: initial_ua_floor
-    parent_error_policy: conservative_bounds
-    candidate_error_policy: worst_case_bounds
-    min_clean_utility: 0.0
-    min_improvement: 0.0
   base: codex
   codex:
     model: gpt-6-sol

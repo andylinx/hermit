@@ -73,13 +73,20 @@ def validate_training(run, expected_proposals=None, method='evosafe'):
             raise RuntimeError('search failed; inspect selection.json before spending on test evaluation')
         trials = selection.get('trials', [])
         if method == 'she':
-            if selection.get('reason') == 'no diagnosed training failures':
-                continue
-            if not selection.get('check', {}).get('passed'):
-                raise RuntimeError('SHE candidate did not pass its specification check')
-            if not all(selection.get(k) for k in ('parent', 'candidate', 'eval_task_ids')):
-                raise RuntimeError('SHE candidate has no complete paired validation')
-            reviewed += 1
+            if selection.get('selection_protocol') != 'upstream_train_best_harness':
+                raise RuntimeError('SHE run does not use official TRAIN best-harness selection')
+            best = selection.get('best_update') or {}
+            ids = selection.get('train_task_ids') or []
+            if not ids or len(ids) != len(set(ids)) or not best.get('acceptance_gate'):
+                raise RuntimeError('SHE round has no measured TRAIN selection record')
+            if not (path.parent / 'paper-ready-metrics.json').is_file():
+                raise RuntimeError('SHE round has no official metric record')
+            if selection.get('proposal_status') == 'pending next TRAIN round; not yet selected':
+                if not selection.get('check', {}).get('passed'):
+                    raise RuntimeError('SHE proposal failed its specification check')
+            elif selection.get('proposal_status') != 'no diagnosed training failures':
+                raise RuntimeError('SHE round did not finish proposal generation')
+            reviewed += int(not selection.get('baseline_initialized'))
             continue
         if expected_proposals is not None and len(trials) != expected_proposals:
             raise RuntimeError('search did not complete the configured proposal budget')
