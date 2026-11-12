@@ -111,25 +111,51 @@ The runner exports comparison reports and root/final adapters under the ignored 
 Keep manifests, effective config, spending, per-case records and adapter snapshots together. Do not commit
 private backend settings, generated data, logs or per-run adapter snapshots.
 
-## Measurement status
+## Results
 
-The first official-protocol Lightning run (`579a18c`, 2026-11-12) measured the original seed in round 1 and
-promoted the evaluated `tool_policy.json` proposal in round 2 through upstream `maybe_update_best`:
+A full official-protocol run completed on 2026-11-12 from source
+`423cc012591d453fb042c7512e1888b2e44860b4`, using the recipe above, GPT-6 Sol high effort with an explicit
+Daybreak Blue request, and Lightning as actor and selective judge. TRAIN is unchanged at 57 cases; reserved
+validation is unused. All 20 TRAIN rounds completed without learner errors: round 1 initialized baseline,
+rounds **2, 3, 5, 6 and 9** promoted evaluated candidates, and 14 later comparisons retained best. Finalization
+exported the measured round-9 snapshot rather than the last proposed patch. The final artifact hash matches
+saved best; system prompt and tool policy changed from the original seed.
 
-| TRAIN metric | Seed | Promoted round 2 |
-|---|---|---|
-| Attack success, completed injected episodes | 10/36 (27.8%) | 3/35 (8.6%) |
-| Official safe task utility, completed injected episodes | 20/36 (55.6%) | 24/35 (68.6%) |
-| Execution errors, all planned episodes | 3/57 | 4/57 |
+TRAIN ASR decreased from 9/36 (25.0%) to 0/37 (0.0%), and official safe UA increased from 21/36 (58.3%) to
+30/37 (81.1%). These are completed injected-episode metrics; they are not held-out performance.
 
-Clean task completion was 14/18 completed cases in both measurements; clean UBR is unavailable. The official
-score increased from 2.2778 to 2.6000, with its missing-clean-UBR constant and an initial UA floor of 0.5556.
-The saved best artifacts match the first proposal, not the unchanged seed. This is one descriptive TRAIN
-promotion, not a TEST result or a completed 20-round experiment.
+The following **frozen TEST** comparison contains all 186 planned cases per variant, with 18 clean and 168
+injected cases from 18 user-task groups. Percentages use each variant's own completed-case denominators.
+UA means safe task completion, rather than raw task utility.
 
-After that promotion, the next proposal failed the CLI's 1,048,576-character input limit because historical
-raw trajectories were duplicated in the query history. The fix supplies compact round metrics and decisions
-as history while retaining current TRAIN evidence. Reconstructing that exact request reduced it from
-2,947,082 to 630,483 characters. The corrected fresh full run starts from the original seed with the same
-Lightning/Daybreak settings. Full optimized TEST results remain pending. Dollar cost is unknown when prices
-are unconfigured. Earlier nonofficial selection attempts remain separate and are not results for this protocol.
+| TEST metric | No adapter | Initial SHE | Final SHE |
+|---|---|---|---|
+| Clean task success | 13/18 (72.2%) | 13/17 (76.5%) | 9/16 (56.3%) |
+| Attack success, lower is better | 46/154 (29.9%) | 33/155 (21.3%) | 3/153 (2.0%) |
+| Official safe UA | 75/154 (48.7%) | 83/155 (53.5%) | 92/153 (60.1%) |
+| Raw injected task success | 97/154 (63.0%) | 95/155 (61.3%) | 94/153 (61.4%) |
+| Execution errors, all planned cases | 14/186 | 14/186 | 17/186 |
+
+All execution errors exhausted the 25-step loop without a terminal assistant response. Final errors comprise
+2 clean and 15 injected cases, compared with 1 clean and 13 injected errors for initial SHE. Errors are not
+credited as blocked attacks. Complete coverage does not mean all episodes succeeded: the run status is
+`complete_with_episode_errors`, and complete-run native objectives remain unavailable.
+
+The final adapter improves observed attack resistance and safe injected-task completion, but **clean task
+success regresses**. Among jointly completed clean pairs, none improved, two regressed and thirteen tied;
+three clean pairs involve an execution error. This is not an unconditional improvement or a statistical
+significance claim. A single run and shared user-task groups limit inference. Clean UBR remains unavailable.
+
+The frozen data SHA-256 is `b529dfa72103fe8c55972e1960dcf492adda2be7dfdd6b1c0a87433007e043fb`;
+AgentDyn revision is `5353cf7615b135cace8d07c8f12dac53a16b6db3`, Codex CLI is `0.164.0`, and the installed SHE
+revision is the pin above. The learner model ID is configured; the CLI did not emit a separate serving-model ID.
+Acting uses concurrency 12, 8,192 output tokens, temperature zero and 25 iterations;
+selective judging allows eight calls. `--no-sandbox` records the user-authorized bubblewrap exception; artifact
+Docker isolation remains enabled. Total search plus TEST wall time was 17,178.5 seconds (about 4 h 46 min).
+Reported TRAIN/search token totals were 95,438,369 rollout and 5,214,982 learner tokens, excluding TEST.
+Dollar spending is unknown because prices are unconfigured; zero subtotal placeholders are not zero cost.
+
+Reproduce with the committed recipe and fresh run/tree names. Ignored run
+`runs/agentdyn-she-lightning-codex-daybreak-official-r2/artifacts/` retains effective config, source/data hashes,
+all per-case records, comparison reports and root/final snapshots. Earlier interrupted or nonofficial attempts
+are separate and are not the results above. Generated cases, trajectories and snapshots are not committed.

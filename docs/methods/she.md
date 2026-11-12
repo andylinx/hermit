@@ -95,8 +95,11 @@ selection metric is retained separately. One pass is descriptive, with correlate
 
 Focused tests exercise upstream metric/selector parity, error denominators, unsafe-task utility exclusion,
 TRAIN-only selection, promotion in a subsequent measured round, rejection rollback, measured-best finalization,
-shared CLI/Docker transport and cancellation. The first official run promoted a measured TRAIN candidate in round 2; the example reports counts and the
-subsequent history-input failure. A fresh full run uses the history fix. Frozen TEST results remain pending.
+shared CLI/Docker transport and cancellation. A full 20-round official-protocol run completed with five measured promotions, retaining round 9 as best.
+On frozen TEST, initial-to-final ASR decreased from 33/155 to 3/153 and safe UA increased from 83/155 to
+92/153; clean task success regressed from 13/17 to 9/16, and errors increased from 14/186 to 17/186.
+The example reports exact denominators, provenance and limitations. These findings establish an observed
+attack-resistance/utility tradeoff, not uniform improvement or statistical significance.
 
 ```{literalinclude} ../../hermit/agent/evolver/methods/she/evolver.yaml
 :language: yaml
